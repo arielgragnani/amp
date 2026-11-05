@@ -3,15 +3,23 @@ on:
   workflow_dispatch:
   push:
     branches: [ main ]
+permissions:
+  contents: write
 jobs:
   build:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
       - name: Configure
-        run: cmake -S native -B build -A x64
+        shell: pwsh
+        run: |
+          cmake -S native -B build -A x64 *>&1 | Tee-Object -FilePath configure.log
+          if ($LASTEXITCODE -ne 0) { exit 1 }
       - name: Build
-        run: cmake --build build --config Release --parallel
+        shell: pwsh
+        run: |
+          cmake --build build --config Release --parallel *>&1 | Tee-Object -FilePath build.log
+          if ($LASTEXITCODE -ne 0) { exit 1 }
       - name: Package
         shell: pwsh
         run: |
@@ -22,3 +30,16 @@ jobs:
         with:
           name: Alt-Guitar-Amp-Rack-Windows
           path: Alt-Guitar-Amp-Rack-Windows.zip
+      - name: Save log for debugging
+        if: failure()
+        shell: pwsh
+        run: |
+          git config user.name "build-bot"; git config user.email "bot@users.noreply.github.com"
+          git checkout --orphan buildlog
+          git rm -rf . -q 2>$null
+          if (Test-Path configure.log) { Get-Content configure.log -Tail 120 | Out-File -Encoding utf8 tail-configure.txt }
+          if (Test-Path build.log) { Get-Content build.log -Tail 150 | Out-File -Encoding utf8 tail-build.txt }
+          if (Test-Path build/CMakeFiles/CMakeError.log) { Get-Content build/CMakeFiles/CMakeError.log -Tail 80 | Out-File -Encoding utf8 cmake-error.txt }
+          git add tail-*.txt cmake-error.txt 2>$null
+          git commit -m "build log" -q
+          git push -f origin buildlog
