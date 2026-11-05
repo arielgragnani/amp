@@ -18,7 +18,7 @@ else()
   FetchContent_MakeAvailable(JUCE)
 endif()
 
-juce_add_gui_app(AltGuitarAmpRack PRODUCT_NAME "Alt Guitar Amp Rack" COMPANY_NAME "Alt" VERSION 1.0.0)
+juce_add_gui_app(AltGuitarAmpRack PRODUCT_NAME "Ariel Signature Amp Rack" COMPANY_NAME "Ariel" VERSION 1.1.0)
 target_sources(AltGuitarAmpRack PRIVATE Source/Main.cpp)
 target_compile_definitions(AltGuitarAmpRack PRIVATE
   JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_REPORT_APP_USAGE=0 JUCE_DISPLAY_SPLASH_SCREEN=0

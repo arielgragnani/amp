@@ -189,6 +189,88 @@ inline double softLimit (double x)
     return x < 0 ? -y : y;
 }
 
+// ---------- pedals ----------
+// Blues-crunch drive: highpass, asymmetric soft clipping at 4x oversampling, tone lowpass
+struct DrivePedal
+{
+    Os4 os; Bq hp, lp; double s4 = 192000, u[512] = {};
+    void init (const HB* hb, double sr)
+    {
+        os = Os4(); os.init (hb); s4 = sr * 4;
+        hp = Bq(); hp.set (BqType::HP, 110, 0.6, 0, s4); lp = Bq(); lp.set (BqType::LP, 3000, 0.707, 0, s4);
+    }
+    void flush() { os.flush(); hp.flush(); lp.flush(); }
+    void setTone (double hz) { lp.set (BqType::LP, hz, 0.707, 0, s4); }
+    // drive 0..10 -> pre-clip gain in dB
+    static double gainDb (double drive) { return 8.0 + clampd (drive, 0, 10) * 2.8; }
+    // level normalisation so every drive setting has about the same loudness at Level 5 (table measured with calib)
+    static double norm (double drive)
+    {
+        static const double T[5] = { 0.58, 0.29, 0.17, 0.125, 0.108 };   // about 2 dB hotter than equal loudness, so the pedal pushes the amp
+        const double p = clampd (drive, 0, 10) / 2.5; const int i = std::min (3, (int) p);
+        return lerpd (T[i], T[i + 1], p - i);
+    }
+    void process (const double* in, int n, double* out, double drive, double toneHz, double outGain)
+    {
+        setTone (toneHz);
+        os.up (in, n, u);
+        const double g = dbl (gainDb (drive)), bias = 0.12, tb = ft (bias);
+        for (int i = 0; i < 4 * n; ++i) { const double v = hp.p (u[i]); u[i] = lp.p (ft (v * g + bias) - tb) * outGain; }
+        os.down (u, n, out);
+    }
+};
+
+// Delay with a darkened, slightly saturated feedback path and a second tap for the right side
+struct DelayPedal
+{
+    std::vector<double> buf; int mask = 0, w = 0; double lpv = 0, lpk = 0.3, sr = 48000;
+    void init (double sampleRate)
+    {
+        sr = sampleRate; buf.assign ((size_t) pow2i ((int) (1.4 * sr) + 8), 0.0); mask = (int) buf.size() - 1; w = 0; lpv = 0;
+        lpk = 1 - std::exp (-TAU * 3200 / sr);
+    }
+    void clear() { std::fill (buf.begin(), buf.end(), 0.0); lpv = 0; }
+    inline double rd (double d) const
+    {
+        const double p = (double) w - d; const double fl = std::floor (p); const double fr = p - fl; const int i = (int) fl;
+        return buf[(size_t) (i & mask)] * (1 - fr) + buf[(size_t) ((i + 1) & mask)] * fr;
+    }
+    inline void process (double in, double dSamples, double fb, double& wl, double& wr)
+    {
+        wl = rd (dSamples); wr = rd (dSamples * 0.62);
+        lpv += (wl - lpv) * lpk;
+        buf[(size_t) w] = ft ((in + fb * lpv) * 0.9) * 1.1; w = (w + 1) & mask;
+    }
+};
+
+// Small feedback-delay-network reverb: four delay lines mixed by a Hadamard matrix, damping in each line, two input diffusers
+struct ReverbPedal
+{
+    static constexpr int N = 4;
+    std::vector<double> d[N]; int len[N] = {}, wp[N] = {}; double lp[N] = {}, g[N] = {}, dk = 0.3, sr = 48000;
+    std::vector<double> ap[2]; int apLen[2] = {}, apW[2] = {};
+    void init (double sampleRate)
+    {
+        sr = sampleRate; static const int L[N] = { 1031, 1327, 1523, 1871 }, A[2] = { 142, 107 };
+        for (int i = 0; i < N; ++i) { len[i] = std::max (8, (int) std::lround (L[i] * sr / 48000)); d[i].assign ((size_t) len[i], 0.0); wp[i] = 0; lp[i] = 0; }
+        for (int i = 0; i < 2; ++i) { apLen[i] = std::max (4, (int) std::lround (A[i] * sr / 48000)); ap[i].assign ((size_t) apLen[i], 0.0); apW[i] = 0; }
+        setDecay (1.5); setTone (5);
+    }
+    void clear() { for (auto& v : d) std::fill (v.begin(), v.end(), 0.0); for (auto& v : ap) std::fill (v.begin(), v.end(), 0.0); for (auto& x : lp) x = 0; }
+    void setDecay (double rt60) { for (int i = 0; i < N; ++i) g[i] = std::pow (10.0, -3.0 * len[i] / (std::max (0.1, rt60) * sr)); }
+    void setTone (double tone) { dk = 1 - std::exp (-TAU * (1500.0 * std::pow (6.0, clampd (tone, 0, 10) / 10)) / sr); }
+    inline void process (double x, double& oL, double& oR)
+    {
+        for (int i = 0; i < 2; ++i) { const double z = ap[i][(size_t) apW[i]]; const double v = x - 0.6 * z; ap[i][(size_t) apW[i]] = v; x = z + 0.6 * v; apW[i] = (apW[i] + 1) % apLen[i]; }
+        double y[N];
+        for (int i = 0; i < N; ++i) { const double r = d[i][(size_t) wp[i]]; lp[i] += (r - lp[i]) * dk; y[i] = lp[i]; }
+        const double m0 = 0.5 * (y[0] + y[1] + y[2] + y[3]), m1 = 0.5 * (y[0] - y[1] + y[2] - y[3]), m2 = 0.5 * (y[0] + y[1] - y[2] - y[3]), m3 = 0.5 * (y[0] - y[1] - y[2] + y[3]);
+        const double m[N] = { m0, m1, m2, m3 };
+        for (int i = 0; i < N; ++i) { d[i][(size_t) wp[i]] = x * 0.4 + g[i] * m[i]; wp[i] = (wp[i] + 1) % len[i]; }
+        oL = 0.5 * (y[0] + y[2]); oR = 0.5 * (y[1] + y[3]);
+    }
+};
+
 // ---------- parameters ----------
 struct Params
 {
@@ -202,6 +284,12 @@ struct Params
     bool gateOn = true; double gateThr = -58;
     // output (knob 0..10)
     double outVol = 6;
+    // amp input gain (5 = unchanged)
+    double gain = 5;
+    // pedals
+    bool drvOn = false; double drvDrive = 5, drvTone = 5, drvLevel = 5;
+    bool dlyOn = false; double dlyTime = 4, dlyFb = 3, dlyMix = 3;
+    bool rvbOn = false; double rvbSize = 4, rvbTone = 5, rvbMix = 3;
 };
 
 struct CabVoicing { double hp, rf, rg, pf, pk, df, dg, lp; };
@@ -240,6 +328,7 @@ public:
         std::fill (std::begin (tsZ), std::end (tsZ), 0.0); brZ = 0;
         aHp[0] = aHp[1] = aLp[0] = aLp[1] = tP = tPh = Bq();
         cHp = cRes = cPk = cDip = cL1 = cL2 = Bq();
+        pedD.init (&hb, sr); pedL.init (sr); pedR.init (sr); dlyLive = rvbLive = false;
         fade = fadeOld = 1; haveP = false; cabIdx = -1;
         std::fill (cur, cur + NP, 0.0); std::fill (old, old + NP, 0.0); std::fill (tgt, tgt + NP, 0.0);
     }
@@ -264,7 +353,7 @@ public:
     double sampleRate() const { return sr; }
 
 private:
-    enum { GateThr, GateOn, AT, AM, AL, AV, ABr, AG1, AG2, APg, ATrim, ATrR, ATrD, SpMix, ASag, CabOn, CabHP, CabRF, CabRG, CabPF, CabPG, CabDF, CabDG, CabLP, Vol, HumAmt, NP };
+    enum { GateThr, GateOn, AT, AM, AL, AV, ABr, AG1, AG2, APg, ATrim, ATrR, ATrD, SpMix, ASag, CabOn, CabHP, CabRF, CabRG, CabPF, CabPG, CabDF, CabDG, CabLP, Vol, HumAmt, AGn, PdOn, PdLv, DlOn, DlTime, DlFb, DlMix, RvOn, RvMix, NP };
     double sr = 48000, s4 = 192000;
     HB hb; Os4 osD, osA;
     double tgt[NP], cur[NP], old[NP]; bool haveP = false; int cabIdx = -1; double fade = 1, fadeOld = 1;
@@ -286,6 +375,8 @@ private:
     Bq cHp, cRes, cPk, cDip, cL1, cL2;
     // work buffers
     double b1[128], u[128 * 4], tg[128];
+    // pedals
+    DrivePedal pedD; DelayPedal pedL; ReverbPedal pedR; double pdDrive = 5, pdTone = 3000, rvDecay = 1.5, rvTone = 5; bool dlyLive = false, rvbLive = false;
 
     void setHumFreq (double f0)
     {
@@ -315,6 +406,13 @@ private:
         t[Vol] = std::pow (clampd (P.outVol, 0, 10) / 10, 1.5) / std::pow (0.6, 1.5);
         t[HumAmt] = P.humOn ? clampd (P.humAmt, 0, 10) / 10 : 0;
         humNom = P.humHz == 50 ? 50 : 60;
+        t[AGn] = dbl ((clampd (P.gain, 0, 10) - 5) * 2.4);
+        t[PdOn] = P.drvOn ? 1 : 0; t[PdLv] = dbl ((clampd (P.drvLevel, 0, 10) - 5) * 2.4);
+        pdDrive = clampd (P.drvDrive, 0, 10); pdTone = 600.0 * std::pow (10.0, clampd (P.drvTone, 0, 10) / 10 * 1.0);   // 600 Hz .. 6 kHz
+        t[DlOn] = P.dlyOn ? 1 : 0; t[DlTime] = 0.06 * std::pow (12.0, clampd (P.dlyTime, 0, 10) / 10);                  // 60 ms .. 720 ms
+        t[DlFb] = clampd (P.dlyFb, 0, 10) / 10 * 0.85; t[DlMix] = clampd (P.dlyMix, 0, 10) / 10 * 0.9;
+        t[RvOn] = P.rvbOn ? 1 : 0; t[RvMix] = clampd (P.rvbMix, 0, 10) / 10 * 0.8;
+        rvDecay = 0.4 * std::pow (15.0, clampd (P.rvbSize, 0, 10) / 10); rvTone = P.rvbTone;                             // 0.4 s .. 6 s
     }
     void coefs()
     {
@@ -440,6 +538,15 @@ private:
         const int gs = gOpen ? 1 : 0;
         if (gs != gSentv) { gSentv = gs; gateOpenFlag = gs; }
 
+        // B: drive pedal in front of the amp
+        if (old[PdOn] > 1e-4 || cur[PdOn] > 1e-4)
+        {
+            double wet[128]; pedD.process (b1, n, wet, pdDrive, pdTone, DrivePedal::norm (pdDrive) * cur[PdLv]);
+            const double e0 = old[PdOn], e1 = cur[PdOn];
+            for (int i = 0; i < n; ++i) { const double e = e0 + (e1 - e0) * (i + 1) * inv; b1[i] = b1[i] * (1 - e) + wet[i] * e; }
+        }
+        else pedD.flush();
+
         // C: amp at 4x
         {
             const int n4 = 4 * n;
@@ -454,7 +561,7 @@ private:
                 }
             }
             osA.up (b1, n, u);
-            const double g1 = cur[AG1] / FEN::h1, g2 = cur[AG2] / FEN::h2;
+            const double g1 = cur[AG1] * cur[AGn] / FEN::h1, g2 = cur[AG2] / FEN::h2;
             stage (aHp[0], aLp[0], n4, g1, FEN::b1, FEN::h1);
             // tone stack
             { const double b0 = tsC[0], bb1 = tsC[1], bb2 = tsC[2], bb3 = tsC[3], a1 = tsC[5], a2 = tsC[6], a3 = tsC[7], mk = dbl (FEN::tsMk) * tsCmp;
@@ -492,6 +599,11 @@ private:
 
         // E: spring reverb, volume, limiter
         const double v0 = old[Vol], v1 = cur[Vol], sp0 = old[SpMix], sp1 = cur[SpMix];
+        const bool dlyAct = old[DlOn] > 1e-4 || cur[DlOn] > 1e-4, rvbAct = old[RvOn] > 1e-4 || cur[RvOn] > 1e-4;
+        if (dlyAct && ! dlyLive) pedL.clear();
+        if (rvbAct && ! rvbLive) pedR.clear();
+        dlyLive = dlyAct; rvbLive = rvbAct;
+        if (rvbAct) { pedR.setDecay (rvDecay); pedR.setTone (rvTone); }
         for (int i = 0; i < n; ++i)
         {
             const double t = (i + 1) * inv, s = b1[i]; double l = s, r = s;
@@ -504,6 +616,17 @@ private:
                 const double wa = spA.p (xi), wb = spB.p (xi);
                 l += (wa + 0.35 * wb) * spm * 1.3; r += (wb + 0.35 * wa) * spm * 1.3;
                 const double ta = wa < 0 ? -wa : wa; spTail = ta > spTail ? ta : spTail * 0.9995;
+            }
+            if (dlyAct)
+            {
+                const double e = old[DlOn] + (cur[DlOn] - old[DlOn]) * t, tm = lerpd (old[DlTime], cur[DlTime], t) * sr;
+                double wl, wr; pedL.process ((l + r) * 0.5, tm, lerpd (old[DlFb], cur[DlFb], t), wl, wr);
+                const double mx = lerpd (old[DlMix], cur[DlMix], t) * e; l += wl * mx; r += wr * mx;
+            }
+            if (rvbAct)
+            {
+                const double e = old[RvOn] + (cur[RvOn] - old[RvOn]) * t; double wl, wr; pedR.process ((l + r) * 0.5, wl, wr);
+                const double mx = lerpd (old[RvMix], cur[RvMix], t) * e * 1.6; l += wl * mx; r += wr * mx;
             }
             const double vol = (v0 + (v1 - v0) * t) * (fadeOld + (fade - fadeOld) * t);
             oL[i] = (float) softLimit (l * vol); oR[i] = (float) softLimit (r * vol);

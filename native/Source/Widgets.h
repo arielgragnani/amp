@@ -45,11 +45,42 @@ public:
 
     void drawRotarySlider (juce::Graphics& g, int x, int y, int w, int h, float pos, float a0, float a1, juce::Slider& s) override
     {
-        const float d = (float) std::min (w, h) - 8.f, cx = x + w * 0.5f, cy = y + h * 0.5f, r = d * 0.5f;
+        const int style = (int) s.getProperties().getWithDefault ("style", 0);
+        const float cx = x + w * 0.5f, cy = y + h * 0.5f, ang = a0 + pos * (a1 - a0);
+        if (style == 1)            // amp: black pointer knob on a dark plate, numbers around it
+        {
+            const float d = (float) std::min (w, h), r = d * 0.30f;
+            g.setFont (juce::Font (juce::FontOptions (d * 0.105f, juce::Font::bold)));
+            for (int i = 0; i <= 10; ++i)
+            {
+                const float a = a0 + (a1 - a0) * (float) i / 10.f, sn = std::sin (a), cs = -std::cos (a);
+                g.setColour (juce::Colour (0xffe9e2cf).withAlpha (0.85f));
+                if (i % 2 == 0) g.drawText (juce::String (i), juce::Rectangle<float> (cx + sn * d * 0.43f - 8, cy + cs * d * 0.43f - 6, 16, 12), juce::Justification::centred);
+                else g.fillEllipse (cx + sn * d * 0.41f - 1.2f, cy + cs * d * 0.41f - 1.2f, 2.4f, 2.4f);
+            }
+            g.setColour (juce::Colours::black.withAlpha (0.55f)); g.fillEllipse (cx - r - 2, cy - r, (r + 2) * 2, (r + 2) * 2);   // shadow
+            g.setGradientFill (juce::ColourGradient (juce::Colour (0xff4a4a4e), cx - r * 0.5f, cy - r * 0.8f, juce::Colour (0xff060607), cx + r * 0.6f, cy + r, true));
+            g.fillEllipse (cx - r, cy - r, r * 2, r * 2);
+            g.setColour (juce::Colour (0xff6c6c70)); g.drawEllipse (cx - r, cy - r, r * 2, r * 2, 1.f);
+            const float r2 = r * 0.72f; g.setColour (juce::Colour (0xff111113)); g.fillEllipse (cx - r2, cy - r2, r2 * 2, r2 * 2);
+            juce::Path p; p.addRoundedRectangle (-1.8f, -r * 0.98f, 3.6f, r * 0.86f, 1.6f);
+            g.setColour (juce::Colour (0xfff2efe6)); g.fillPath (p, juce::AffineTransform::rotation (ang).translated (cx, cy));
+            return;
+        }
+        if (style == 2)            // pedal: small silver-edged knob with a white line
+        {
+            const float r = (float) std::min (w, h) * 0.5f - 2.f;
+            g.setColour (juce::Colours::black.withAlpha (0.5f)); g.fillEllipse (cx - r - 1, cy - r + 1, r * 2 + 2, r * 2 + 2);
+            g.setGradientFill (juce::ColourGradient (juce::Colour (0xff6a6a6e), cx, cy - r, juce::Colour (0xff17171a), cx, cy + r, false)); g.fillEllipse (cx - r, cy - r, r * 2, r * 2);
+            g.setColour (juce::Colour (0xffb8bcc2)); g.drawEllipse (cx - r, cy - r, r * 2, r * 2, 1.2f);
+            juce::Path p; p.addRoundedRectangle (-1.3f, -r + 1.5f, 2.6f, r * 0.62f, 1.2f);
+            g.setColour (juce::Colours::white); g.fillPath (p, juce::AffineTransform::rotation (ang).translated (cx, cy));
+            return;
+        }
+        const float d = (float) std::min (w, h) - 8.f, r = d * 0.5f;
         const auto fill = s.findColour (juce::Slider::rotarySliderFillColourId), ring = s.findColour (juce::Slider::rotarySliderOutlineColourId);
         juce::Path track; track.addCentredArc (cx, cy, r, r, 0.f, a0, a1, true);
         g.setColour (ring); g.strokePath (track, juce::PathStrokeType (3.f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
-        const float ang = a0 + pos * (a1 - a0);
         juce::Path val; val.addCentredArc (cx, cy, r, r, 0.f, a0, ang, true);
         g.setColour (fill); g.strokePath (val, juce::PathStrokeType (3.f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
         const float cr = r - 6.f;
@@ -88,13 +119,18 @@ class Knob : public juce::Component
 public:
     juce::Slider s { juce::Slider::RotaryVerticalDrag, juce::Slider::TextBoxBelow };
     juce::Label name;
-    Knob (const juce::String& label, double mn, double mx, double def, std::function<juce::String (double)> fmt = nullptr)
+    int style = 0;
+    Knob (const juce::String& label, double mn, double mx, double def, int style_ = 0)
     {
+        style = style_; std::function<juce::String (double)> fmt = nullptr;
+        s.getProperties().set ("style", style);
         name.setText (label, juce::dontSendNotification); name.setJustificationType (juce::Justification::centred);
-        name.setFont (juce::Font (juce::FontOptions (14.f, juce::Font::bold))); name.setInterceptsMouseClicks (false, false);
+        name.setInterceptsMouseClicks (false, false);
         addAndMakeVisible (name);
         s.setRange (mn, mx, 0.05); s.setValue (def, juce::dontSendNotification); s.setDoubleClickReturnValue (true, def);
-        s.setTextBoxStyle (juce::Slider::TextBoxBelow, true, 72, 16); s.setRotaryParameters (juce::degreesToRadians (225.f), juce::degreesToRadians (495.f), true);
+        s.setTextBoxStyle (style == 0 ? juce::Slider::TextBoxBelow : juce::Slider::NoTextBox, true, 72, 16); s.setPopupDisplayEnabled (style != 0, true, nullptr);
+        s.setWantsKeyboardFocus (false); name.setFont (juce::Font (juce::FontOptions (style == 2 ? 11.f : 13.f, juce::Font::bold)));
+        s.setRotaryParameters (juce::degreesToRadians (225.f), juce::degreesToRadians (495.f), true);
         s.setMouseDragSensitivity (180); s.setScrollWheelEnabled (true); s.setTitle (label);
         if (fmt) s.textFromValueFunction = fmt; else s.setNumDecimalPlacesToDisplay (1);
         addAndMakeVisible (s);
@@ -105,7 +141,7 @@ public:
         s.setColour (juce::Slider::rotarySliderFillColourId, arc); s.setColour (juce::Slider::rotarySliderOutlineColourId, c.withAlpha (0.25f));
     }
     void setValueQuiet (double v) { s.setValue (v, juce::dontSendNotification); }
-    void resized() override { auto r = getLocalBounds(); name.setBounds (r.removeFromTop (18)); s.setBounds (r); }
+    void resized() override { auto r = getLocalBounds(); name.setBounds (r.removeFromTop (style == 2 ? 14 : 18)); s.setBounds (r); }
 };
 
 class LevelMeter : public juce::Component

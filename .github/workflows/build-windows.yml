@@ -10,26 +10,43 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Configure
+      - name: Configure and build (tries ASIO first, falls back to the standard drivers)
         shell: pwsh
         run: |
-          cmake -S native -B build -A x64 *>&1 | Tee-Object -FilePath configure.log
-          if ($LASTEXITCODE -ne 0) { exit 1 }
-      - name: Build
-        shell: pwsh
-        run: |
-          cmake --build build --config Release --parallel *>&1 | Tee-Object -FilePath build.log
-          if ($LASTEXITCODE -ne 0) { exit 1 }
+          $asio = $null
+          try {
+            Invoke-WebRequest -Uri "https://download.steinberg.net/sdk_downloads/asiosdk_2.3.3_2019-06-14.zip" -OutFile asio.zip -TimeoutSec 90
+            Expand-Archive asio.zip -DestinationPath asio
+            $f = Get-ChildItem asio -Recurse -Filter iasiodrv.h | Select-Object -First 1
+            if ($f) { $asio = $f.Directory.Parent.FullName }
+          } catch { Write-Host "ASIO SDK not available: $_" }
+          $built = $false
+          if ($asio) {
+            Write-Host "Building with ASIO from $asio"
+            cmake -S native -B build -A x64 -DALT_ASIO=ON "-DASIO_SDK_DIR=$asio" *>&1 | Tee-Object -FilePath configure.log
+            if ($LASTEXITCODE -eq 0) {
+              cmake --build build --config Release --parallel *>&1 | Tee-Object -FilePath build.log
+              if ($LASTEXITCODE -eq 0) { $built = $true }
+            }
+            if (-not $built) { Write-Host "ASIO build failed - falling back"; Remove-Item build -Recurse -Force -ErrorAction SilentlyContinue }
+          }
+          if (-not $built) {
+            cmake -S native -B build -A x64 *>&1 | Tee-Object -FilePath configure.log
+            if ($LASTEXITCODE -ne 0) { exit 1 }
+            cmake --build build --config Release --parallel *>&1 | Tee-Object -FilePath build.log
+            if ($LASTEXITCODE -ne 0) { exit 1 }
+          }
+          New-Item -ItemType Directory -Force dist | Out-Null
+          if ($built) { "ASIO support: included" | Out-File dist/BUILD-INFO.txt } else { "ASIO support: not included (using Windows drivers only)" | Out-File dist/BUILD-INFO.txt }
       - name: Package
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force dist | Out-Null
-          Copy-Item "build/AltGuitarAmpRack_artefacts/Release/Alt Guitar Amp Rack.exe" "dist/Alt Guitar Amp Rack.exe"
-          Compress-Archive -Path "dist/Alt Guitar Amp Rack.exe" -DestinationPath "Alt-Guitar-Amp-Rack-Windows.zip"
+          Copy-Item "build/AltGuitarAmpRack_artefacts/Release/Ariel Signature Amp Rack.exe" "dist/Ariel Signature Amp Rack.exe"
+          Compress-Archive -Path "dist/*" -DestinationPath "Ariel-Signature-Amp-Rack-Windows.zip"
       - uses: actions/upload-artifact@v4
         with:
-          name: Alt-Guitar-Amp-Rack-Windows
-          path: Alt-Guitar-Amp-Rack-Windows.zip
+          name: Ariel-Signature-Amp-Rack-Windows
+          path: Ariel-Signature-Amp-Rack-Windows.zip
       - name: Save log for debugging
         if: failure()
         shell: pwsh
@@ -39,7 +56,6 @@ jobs:
           git rm -rf . -q 2>$null
           if (Test-Path configure.log) { Get-Content configure.log -Tail 120 | Out-File -Encoding utf8 tail-configure.txt }
           if (Test-Path build.log) { Get-Content build.log -Tail 150 | Out-File -Encoding utf8 tail-build.txt }
-          if (Test-Path build/CMakeFiles/CMakeError.log) { Get-Content build/CMakeFiles/CMakeError.log -Tail 80 | Out-File -Encoding utf8 cmake-error.txt }
-          Get-ChildItem tail-*.txt, cmake-error.txt -ErrorAction SilentlyContinue | ForEach-Object { git add -f $_.Name }
+          Get-ChildItem tail-*.txt -ErrorAction SilentlyContinue | ForEach-Object { git add -f $_.Name }
           git commit -m "build log" -q
           git push -f origin buildlog

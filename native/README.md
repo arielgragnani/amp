@@ -1,26 +1,19 @@
-# Alt Guitar Amp Rack - Windows app
+# Ariel's Signature Amp Rack - Windows app
 
-A standalone Windows version of the amp, with much lower latency than the browser version because it talks to the sound card directly (WASAPI Exclusive, or ASIO if you build it in).
+Standalone Windows amp simulator: tweed-style amp, voicing tabs, noise control, a pedalboard (Blues Crunch, Echo Delay, Hall Reverb) and a 4-track recorder with metronome.
 
-## Get the .exe (no programming needed)
-1. On GitHub click **+ > New repository**, name it `amp-app`, create it.
-2. Click **Add file > Upload files** and drag in **everything inside this folder** (including the hidden `.github` folder - if your browser won't drag it, see note below). Commit.
-3. Open the **Actions** tab, click **Build Windows app** on the left, then **Run workflow**. Wait about 10 minutes.
-4. Click the finished run, scroll to **Artifacts**, download **Alt-Guitar-Amp-Rack-Windows**, unzip, and double-click the .exe.
+## Get the app
+Open the **Actions** tab on GitHub, click the newest green **Build Windows app** run, download **Ariel-Signature-Amp-Rack-Windows** under *Artifacts*, right-click the zip > Properties > Unblock, then Extract All. Double-click `Ariel Signature Amp Rack.exe`. Nothing is installed.
 
-Note: if `.github` won't upload, create the file in GitHub with **Add file > Create new file**, type `.github/workflows/build-windows.yml` as the name and paste the contents of that file.
+## Lowest delay
+1. Top bar, **Driver**: pick `ASIO` if it is in the list (the build tries to include it), otherwise `Windows Audio (Exclusive Mode)`.
+2. **Buffer**: choose the smallest size that doesn't crackle (64 or 128 samples is typical; 32 on a good interface).
+3. Use your interface's own ASIO driver if it has one. If it doesn't, ASIO4ALL or FlexASIO give ASIO access to any sound card.
+4. Press **Auto** next to *Comp* so recorded takes line up with the click.
+`BUILD-INFO.txt` in the zip says whether ASIO was included.
 
-Students need to install nothing else. Windows may show a "SmartScreen" warning for an unsigned program: click **More info > Run anyway**.
+## Voicings
+Click a tab, or press the **Left / Right arrow keys**. Turning any knob switches to "custom" (no tab lit).
 
-## First run
-1. Click **Audio settings**. Under *Audio device type* choose **Windows Audio (Exclusive Mode)** (or ASIO). Pick your interface for input and output and the smallest buffer that stays clean (64-128 samples).
-2. Choose the input channel the guitar is on, play, and set Gain so the left meter peaks in the amber.
-3. The top line shows the buffer size and the latency the driver reports. Use **Auto** next to *Comp* so recordings line up with the click.
-
-With a USB interface that has its own ASIO driver, round-trip latency of 5-10 ms is normal. Without one, Exclusive mode usually gives 10-20 ms.
-
-## Optional: ASIO
-Steinberg's ASIO SDK cannot be redistributed here. Download it from Steinberg, then build with `-DALT_ASIO=ON -DASIO_SDK_DIR=<path>`. The ASIO SDK and JUCE have their own licences - check them before sharing the app beyond your own classroom.
-
-## Licence note
-The app is built with JUCE (AGPLv3 or commercial/personal licence). Distributing the .exe publicly means complying with one of those.
+## Licences
+Built with JUCE (AGPLv3 or commercial/personal licence). The ASIO SDK is Steinberg's and is not redistributed; the build downloads it directly from Steinberg. Check both licences before sharing the app beyond your own classroom.
