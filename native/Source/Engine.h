@@ -3,6 +3,9 @@
 // blackface-style amp (4x oversampled), speaker cabinet, spring reverb, output volume and soft limiter.
 // Plain C++17, no framework dependencies, so it can be tested on its own.
 #pragma once
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
 #include <algorithm>
 #include <atomic>
 #include <cmath>

@@ -199,11 +199,16 @@ public:
         wet.onClick = [this] { if (onExport) onExport (idx, true); }; dry.onClick = [this] { if (onExport) onExport (idx, false); };
         clear.onClick = [this]
         {
-            if (! confirmClear) { confirmClear = true; clear.setButtonText ("Sure?"); juce::Timer::callAfterDelay (3000, [sp = juce::Component::SafePointer<TrackStrip> (this)] { if (sp != nullptr) sp->resetClear(); }); return; }
+            if (! confirmClear) { confirmClear = true; clear.setButtonText ("Sure?"); scheduleReset(); return; }
             resetClear(); if (onClear) onClear (idx);
         };
         wave.rig = &r; wave.index = i; wave.viewSecs = std::move (view);
         for (auto* c : std::initializer_list<juce::Component*> { &arm, &name, &wave, &mute, &solo, &vol, &reamp, &wet, &dry, &clear }) addAndMakeVisible (c);
+    }
+    void scheduleReset()
+    {
+        juce::Component::SafePointer<TrackStrip> safe (this);
+        juce::Timer::callAfterDelay (3000, [safe] { if (safe != nullptr) safe->resetClear(); });
     }
     void resetClear() { confirmClear = false; clear.setButtonText (juce::String::fromUTF8 ("\xE2\x9C\x95")); }
     void update (bool isArmed, bool recording)
