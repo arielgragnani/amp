@@ -12,6 +12,12 @@ Open the **Actions** tab on GitHub, click the newest green **Build Windows app**
 4. Press **Auto** next to *Comp* so recorded takes line up with the click.
 `BUILD-INFO.txt` in the zip says whether ASIO was included.
 
+## Noise samples
+If a pickup is noisy: open **Noise control**, mute the strings, press **Save noise sample** (5 s), save the .wav and send it with a note saying which pickup and where you were. It saves your raw guitar signal and the amp output, which is enough to tell hum from buzz from hiss.
+
+## Tuner
+Press **Tuner** in the recorder row. The amp is muted while it is open (switch "Mute amp" off to hear it).
+
 ## Voicings
 Click a tab, or press the **Left / Right arrow keys**. Turning any knob switches to "custom" (no tab lit).
 

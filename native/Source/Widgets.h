@@ -47,24 +47,30 @@ public:
     {
         const int style = (int) s.getProperties().getWithDefault ("style", 0);
         const float cx = x + w * 0.5f, cy = y + h * 0.5f, ang = a0 + pos * (a1 - a0);
-        if (style == 1)            // amp: black pointer knob on a dark plate, numbers around it
+        if (style == 1)            // amp: black skirted knob with a painted pointer, printed scale around it
         {
-            const float d = (float) std::min (w, h), r = d * 0.30f;
-            g.setFont (juce::Font (juce::FontOptions (d * 0.105f, juce::Font::bold)));
+            const float d = (float) std::min (w, h), r = d * 0.31f;
+            g.setFont (juce::Font (juce::FontOptions (d * 0.11f, juce::Font::bold)));
             for (int i = 0; i <= 10; ++i)
             {
                 const float a = a0 + (a1 - a0) * (float) i / 10.f, sn = std::sin (a), cs = -std::cos (a);
-                g.setColour (juce::Colour (0xffe9e2cf).withAlpha (0.85f));
-                if (i % 2 == 0) g.drawText (juce::String (i), juce::Rectangle<float> (cx + sn * d * 0.43f - 8, cy + cs * d * 0.43f - 6, 16, 12), juce::Justification::centred);
-                else g.fillEllipse (cx + sn * d * 0.41f - 1.2f, cy + cs * d * 0.41f - 1.2f, 2.4f, 2.4f);
+                g.setColour (juce::Colour (0xffe9e2cf).withAlpha (0.88f));
+                g.drawText (juce::String (i), juce::Rectangle<float> (cx + sn * d * 0.445f - 8, cy + cs * d * 0.445f - 6, 16, 12), juce::Justification::centred);
             }
-            g.setColour (juce::Colours::black.withAlpha (0.55f)); g.fillEllipse (cx - r - 2, cy - r, (r + 2) * 2, (r + 2) * 2);   // shadow
-            g.setGradientFill (juce::ColourGradient (juce::Colour (0xff4a4a4e), cx - r * 0.5f, cy - r * 0.8f, juce::Colour (0xff060607), cx + r * 0.6f, cy + r, true));
+            g.setColour (juce::Colours::black.withAlpha (0.65f)); g.fillEllipse (cx - r - 1, cy - r + 3, (r + 1) * 2, (r + 1) * 2);                 // cast shadow
+            g.setGradientFill (juce::ColourGradient (juce::Colour (0xff3b3b3f), cx - r, cy - r, juce::Colour (0xff050506), cx + r, cy + r, false));       // skirt
             g.fillEllipse (cx - r, cy - r, r * 2, r * 2);
-            g.setColour (juce::Colour (0xff6c6c70)); g.drawEllipse (cx - r, cy - r, r * 2, r * 2, 1.f);
-            const float r2 = r * 0.72f; g.setColour (juce::Colour (0xff111113)); g.fillEllipse (cx - r2, cy - r2, r2 * 2, r2 * 2);
-            juce::Path p; p.addRoundedRectangle (-1.8f, -r * 0.98f, 3.6f, r * 0.86f, 1.6f);
-            g.setColour (juce::Colour (0xfff2efe6)); g.fillPath (p, juce::AffineTransform::rotation (ang).translated (cx, cy));
+            g.saveState(); juce::Path sk; sk.addEllipse (cx - r, cy - r, r * 2, r * 2); g.reduceClipRegion (sk);
+            for (int i = 0; i < 36; ++i) { const float a = (float) i / 36.f * juce::MathConstants<float>::twoPi; g.setColour (juce::Colours::white.withAlpha (0.07f)); g.drawLine (cx + std::sin (a) * r * 0.80f, cy - std::cos (a) * r * 0.80f, cx + std::sin (a) * r, cy - std::cos (a) * r, 1.f); }
+            g.restoreState();
+            g.setColour (juce::Colour (0xff070708)); g.drawEllipse (cx - r, cy - r, r * 2, r * 2, 1.2f);
+            const float r2 = r * 0.74f;                                                                                                           // raised top face
+            g.setGradientFill (juce::ColourGradient (juce::Colour (0xff4a4a4f), cx - r2 * 0.6f, cy - r2 * 0.8f, juce::Colour (0xff0d0d0f), cx + r2 * 0.7f, cy + r2, true));
+            g.fillEllipse (cx - r2, cy - r2, r2 * 2, r2 * 2);
+            g.setColour (juce::Colours::white.withAlpha (0.16f)); g.drawEllipse (cx - r2 + 0.5f, cy - r2 + 0.5f, r2 * 2 - 1, r2 * 2 - 1, 1.f);
+            g.setColour (juce::Colours::white.withAlpha (0.14f)); g.fillEllipse (cx - r2 * 0.55f, cy - r2 * 0.85f, r2 * 0.8f, r2 * 0.35f);       // specular
+            juce::Path p; p.addRoundedRectangle (-1.7f, -r * 0.97f, 3.4f, r * 0.80f, 1.5f);
+            g.setColour (juce::Colour (0xfff4f1e8)); g.fillPath (p, juce::AffineTransform::rotation (ang).translated (cx, cy));
             return;
         }
         if (style == 2)            // pedal: small silver-edged knob with a white line

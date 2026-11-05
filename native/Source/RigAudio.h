@@ -82,6 +82,25 @@ public:
 
     double sampleRate() const { return sr; }
 
+    // ---- tuner: the last 16384 input samples, plus a switch to silence the output while tuning ----
+    static constexpr int TunerN = 16384;
+    std::atomic<bool> muteOut { false };
+    void copyTunerWindow (float* dst, int n) const
+    {
+        const uint32_t end = tunerPos.load (std::memory_order_acquire);
+        for (int i = 0; i < n; ++i) dst[i] = tunerBuf[(end - (uint32_t) n + (uint32_t) i) & (TunerN - 1)];
+    }
+
+    // ---- noise sample: records the raw input and the amp output for a few seconds so it can be saved and examined ----
+    std::atomic<bool> diagOn { false }, diagDone { false };
+    std::vector<float> diagRaw, diagWet;
+    void startDiag (double seconds)
+    {
+        diagOn = false; diagDone = false;
+        const int n = (int) (seconds * sr); diagRaw.assign ((size_t) n, 0.f); diagWet.assign ((size_t) n, 0.f);
+        diagLen = n; diagN = 0; diagOn = true;
+    }
+
     void commitTake()
     {
         const int i = takeReady.load();
@@ -134,6 +153,7 @@ private:
     std::atomic<bool> learnReq { false };
     std::atomic<float> gainTarget { 1.f }; float gainSmooth = 1.f;
     std::atomic<int> inChannel { 0 };
+    float tunerBuf[TunerN] = {}; std::atomic<uint32_t> tunerPos { 0 }; std::atomic<int> diagLen { 0 }; int diagN = 0;
     int64_t tpos = 0, freeCount = 0, beatLen = 24000, countLen = 0, recLimit = 0;
     std::vector<std::shared_ptr<const TrackData>> graveyard;
     // click voice
@@ -276,7 +296,9 @@ private:
             gainSmooth += (gainTarget.load() - gainSmooth) * 0.002f;
             const float v = (x + re) * gainSmooth;
             mono[i] = v; const float a = std::fabs (v); if (a > pkIn) pkIn = a;
+            tunerBuf[(tunerPos.load (std::memory_order_relaxed) + (uint32_t) i) & (TunerN - 1)] = x * gainSmooth;
         }
+        tunerPos.store (tunerPos.load (std::memory_order_relaxed) + (uint32_t) c, std::memory_order_release);
         engine.process (mono, wetL, wetR, c);
 
         float pkOut = 0;
@@ -321,6 +343,9 @@ private:
                 const float cl = clickAmp * env * (float) std::sin (clickPhase); clickPhase += TAU * clickFreq / sr; --clickRemain;
                 l += cl; r += cl;
             }
+            if (diagOn.load() && diagN < diagLen.load())
+            { diagRaw[(size_t) diagN] = dryTap[i]; diagWet[(size_t) diagN] = recL; if (++diagN >= diagLen.load()) { diagOn = false; diagDone = true; } }
+            if (muteOut.load (std::memory_order_relaxed)) { l = 0; r = 0; }
             const float a = std::max (std::fabs (l), std::fabs (r)); if (a > pkOut) pkOut = a;
             for (int ch = 0; ch < nOut; ++ch)
             {

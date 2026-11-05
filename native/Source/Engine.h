@@ -271,6 +271,25 @@ struct ReverbPedal
     }
 };
 
+// Compression sustainer: peak detector with adjustable attack, soft downward gain computer, automatic makeup so that
+// loud notes stay about the same level while quiet notes and tails are lifted.
+struct CompPedal
+{
+    double env = 0, gdb = 0, sr = 48000, rel = 0, ka = 0;
+    void init (double sampleRate) { sr = sampleRate; env = 0; gdb = 0; rel = std::exp (-1 / (0.28 * sr)); setAttack (4); }
+    void flush() { flushv (env); flushv (gdb); }
+    void setAttack (double knob) { ka = 1 - std::exp (-1 / ((0.0005 * std::pow (80.0, clampd (knob, 0, 10) / 10)) * sr)); }   // 0.5 ms .. 40 ms
+    inline double process (double x, double thr, double ratio, double makeup)
+    {
+        const double a = x < 0 ? -x : x;
+        env = a > env ? env + (a - env) * ka : env * rel;
+        const double lv = 20 * std::log10 (env + 1e-6), over = lv - thr;
+        const double target = (over > 0 ? -over * (1 - 1 / ratio) : 0) + makeup;
+        gdb += (target - gdb) * 0.0025 * (target < gdb ? 6 : 1);   // short smoothing of the gain itself
+        return x * std::exp (gdb * 0.11512925464970229);
+    }
+};
+
 // ---------- parameters ----------
 struct Params
 {
@@ -287,6 +306,7 @@ struct Params
     // amp input gain (5 = unchanged)
     double gain = 5;
     // pedals
+    bool cmpOn = false; double cmpSustain = 5, cmpAttack = 4, cmpLevel = 5;
     bool drvOn = false; double drvDrive = 5, drvTone = 5, drvLevel = 5;
     bool dlyOn = false; double dlyTime = 4, dlyFb = 3, dlyMix = 3;
     bool rvbOn = false; double rvbSize = 4, rvbTone = 5, rvbMix = 3;
@@ -328,7 +348,7 @@ public:
         std::fill (std::begin (tsZ), std::end (tsZ), 0.0); brZ = 0;
         aHp[0] = aHp[1] = aLp[0] = aLp[1] = tP = tPh = Bq();
         cHp = cRes = cPk = cDip = cL1 = cL2 = Bq();
-        pedD.init (&hb, sr); pedL.init (sr); pedR.init (sr); dlyLive = rvbLive = false;
+        pedC.init (sr); pedD.init (&hb, sr); pedL.init (sr); pedR.init (sr); dlyLive = rvbLive = false;
         fade = fadeOld = 1; haveP = false; cabIdx = -1;
         std::fill (cur, cur + NP, 0.0); std::fill (old, old + NP, 0.0); std::fill (tgt, tgt + NP, 0.0);
     }
@@ -353,7 +373,7 @@ public:
     double sampleRate() const { return sr; }
 
 private:
-    enum { GateThr, GateOn, AT, AM, AL, AV, ABr, AG1, AG2, APg, ATrim, ATrR, ATrD, SpMix, ASag, CabOn, CabHP, CabRF, CabRG, CabPF, CabPG, CabDF, CabDG, CabLP, Vol, HumAmt, AGn, PdOn, PdLv, DlOn, DlTime, DlFb, DlMix, RvOn, RvMix, NP };
+    enum { GateThr, GateOn, AT, AM, AL, AV, ABr, AG1, AG2, APg, ATrim, ATrR, ATrD, SpMix, ASag, CabOn, CabHP, CabRF, CabRG, CabPF, CabPG, CabDF, CabDG, CabLP, Vol, HumAmt, AGn, CoOn, CoLv, PdOn, PdLv, DlOn, DlTime, DlFb, DlMix, RvOn, RvMix, NP };
     double sr = 48000, s4 = 192000;
     HB hb; Os4 osD, osA;
     double tgt[NP], cur[NP], old[NP]; bool haveP = false; int cabIdx = -1; double fade = 1, fadeOld = 1;
@@ -376,6 +396,7 @@ private:
     // work buffers
     double b1[128], u[128 * 4], tg[128];
     // pedals
+    CompPedal pedC; double coThr = -40, coRatio = 6, coMake = 10, coAtt = 4;
     DrivePedal pedD; DelayPedal pedL; ReverbPedal pedR; double pdDrive = 5, pdTone = 3000, rvDecay = 1.5, rvTone = 5; bool dlyLive = false, rvbLive = false;
 
     void setHumFreq (double f0)
@@ -407,6 +428,8 @@ private:
         t[HumAmt] = P.humOn ? clampd (P.humAmt, 0, 10) / 10 : 0;
         humNom = P.humHz == 50 ? 50 : 60;
         t[AGn] = dbl ((clampd (P.gain, 0, 10) - 5) * 2.4);
+        t[CoOn] = P.cmpOn ? 1 : 0; t[CoLv] = dbl ((clampd (P.cmpLevel, 0, 10) - 5) * 2.4);
+        { const double su = clampd (P.cmpSustain, 0, 10); coThr = -20 - su * 3.2; coRatio = 2 + su * 1.8; coMake = std::max (0.0, -18 - coThr) * (1 - 1 / coRatio) * 1.12; coAtt = P.cmpAttack; }
         t[PdOn] = P.drvOn ? 1 : 0; t[PdLv] = dbl ((clampd (P.drvLevel, 0, 10) - 5) * 2.4);
         pdDrive = clampd (P.drvDrive, 0, 10); pdTone = 600.0 * std::pow (10.0, clampd (P.drvTone, 0, 10) / 10 * 1.0);   // 600 Hz .. 6 kHz
         t[DlOn] = P.dlyOn ? 1 : 0; t[DlTime] = 0.06 * std::pow (12.0, clampd (P.dlyTime, 0, 10) / 10);                  // 60 ms .. 720 ms
@@ -537,6 +560,19 @@ private:
         }
         const int gs = gOpen ? 1 : 0;
         if (gs != gSentv) { gSentv = gs; gateOpenFlag = gs; }
+
+        // B0: compression sustainer
+        if (old[CoOn] > 1e-4 || cur[CoOn] > 1e-4)
+        {
+            pedC.setAttack (coAtt);
+            const double e0 = old[CoOn], e1 = cur[CoOn], l0 = old[CoLv], l1 = cur[CoLv];
+            for (int i = 0; i < n; ++i)
+            {
+                const double e = e0 + (e1 - e0) * (i + 1) * inv, lv = l0 + (l1 - l0) * (i + 1) * inv, dry = b1[i];
+                b1[i] = dry * (1 - e) + pedC.process (dry, coThr, coRatio, coMake) * lv * e;
+            }
+        }
+        else pedC.flush();
 
         // B: drive pedal in front of the amp
         if (old[PdOn] > 1e-4 || cur[PdOn] > 1e-4)
