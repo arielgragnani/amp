@@ -1,0 +1,91 @@
+MSBuild version 18.11.1-1.26513.3+940033be3 for .NET Framework
+
+  Checking File Globs
+  1>Checking Build System
+  Generating AltGuitarAmpRack_artefacts/JuceLibraryCode/AltGuitarAmpRack_resources.rc
+  Building Custom Rule D:/a/amp/amp/native/CMakeLists.txt
+  AltGuitarAmpRack_rc_lib.vcxproj -> D:\a\amp\amp\build\AltGuitarAmpRack_rc_lib.dir\Release\AltGuitarAmpRack_rc_lib.lib
+  Building Custom Rule D:/a/amp/amp/native/CMakeLists.txt
+  Main.cpp
+  juce_gui_basics.cpp
+  juce_graphics.cpp
+  juce_graphics_Harfbuzz.cpp
+D:\a\amp\amp\build\_deps\juce-src\modules\juce_gui_basics\juce_gui_basics.cpp(61): warning : This version of JUCE does not use the splash screen, the flag JUCE_DISPLAY_SPLASH_SCREEN is ignored [D:\a\amp\amp\build\AltGuitarAmpRack.vcxproj]
+D:\a\amp\amp\native\Source\Engine.h(68,37): error C2065: 'M_PI': undeclared identifier [D:\a\amp\amp\build\AltGuitarAmpRack.vcxproj]
+  (compiling source file '../native/Source/Main.cpp')
+  
+D:\a\amp\amp\native\Source\Engine.h(68,50): error C2065: 'M_PI': undeclared identifier [D:\a\amp\amp\build\AltGuitarAmpRack.vcxproj]
+  (compiling source file '../native/Source/Main.cpp')
+  
+D:\a\amp\amp\native\Source\Engine.h(366,27): error C2065: 'M_PI': undeclared identifier [D:\a\amp\amp\build\AltGuitarAmpRack.vcxproj]
+  (compiling source file '../native/Source/Main.cpp')
+  
+D:\a\amp\amp\native\Source\Engine.h(366,61): error C2065: 'M_PI': undeclared identifier [D:\a\amp\amp\build\AltGuitarAmpRack.vcxproj]
+  (compiling source file '../native/Source/Main.cpp')
+  
+D:\a\amp\amp\native\Source\Widgets.h(202,169): error C2440: '<function-style-cast>': cannot convert from 'const altui::TrackStrip::{ctor}::<lambda_da850e885c0967e8f4dcbc4e4584b783> *' to 'juce::Component::SafePointer<altui::TrackStrip>' [D:\a\amp\amp\build\AltGuitarAmpRack.vcxproj]
+  (compiling source file '../native/Source/Main.cpp')
+      D:\a\amp\amp\native\Source\Widgets.h(202,169):
+      'juce::Component::SafePointer<altui::TrackStrip>::SafePointer': no overloaded function could convert all the argument types
+          D:\a\amp\amp\build\_deps\juce-src\modules\juce_gui_basics\components\juce_Component.h(2398,9):
+          could be 'juce::Component::SafePointer<altui::TrackStrip>::SafePointer(const juce::Component::SafePointer<altui::TrackStrip> &) noexcept'
+              D:\a\amp\amp\native\Source\Widgets.h(202,169):
+              'juce::Component::SafePointer<altui::TrackStrip>::SafePointer(const juce::Component::SafePointer<altui::TrackStrip> &) noexcept': cannot convert argument 1 from 'const altui::TrackStrip::{ctor}::<lambda_da850e885c0967e8f4dcbc4e4584b783> *' to 'const juce::Component::SafePointer<altui::TrackStrip> &'
+                  D:\a\amp\amp\native\Source\Widgets.h(202,170):
+                  Reason: cannot convert from 'const altui::TrackStrip::{ctor}::<lambda_da850e885c0967e8f4dcbc4e4584b783> *' to 'const juce::Component::SafePointer<altui::TrackStrip>'
+          D:\a\amp\amp\build\_deps\juce-src\modules\juce_gui_basics\components\juce_Component.h(2395,9):
+          or       'juce::Component::SafePointer<altui::TrackStrip>::SafePointer(ComponentType *)'
+          with
+          [
+              ComponentType=altui::TrackStrip
+          ]
+              D:\a\amp\amp\native\Source\Widgets.h(202,169):
+              'juce::Component::SafePointer<altui::TrackStrip>::SafePointer(ComponentType *)': cannot convert argument 1 from 'const altui::TrackStrip::{ctor}::<lambda_da850e885c0967e8f4dcbc4e4584b783> *' to 'ComponentType *'
+          with
+          [
+              ComponentType=altui::TrackStrip
+          ]
+                  D:\a\amp\amp\native\Source\Widgets.h(202,170):
+                  Types pointed to are unrelated; conversion requires reinterpret_cast, C-style cast or parenthesized function-style cast
+          D:\a\amp\amp\native\Source\Widgets.h(202,169):
+          while trying to match the argument list '(const altui::TrackStrip::{ctor}::<lambda_da850e885c0967e8f4dcbc4e4584b783> *)'
+  
+D:\a\amp\amp\native\Source\Widgets.h(202,145): error C2119: 'sp': the type for 'auto' cannot be deduced from an empty initializer [D:\a\amp\amp\build\AltGuitarAmpRack.vcxproj]
+  (compiling source file '../native/Source/Main.cpp')
+  
+D:\a\amp\amp\native\Source\Widgets.h(202,186): error C2446: '!=': no conversion from 'nullptr' to 'const <error type>' [D:\a\amp\amp\build\AltGuitarAmpRack.vcxproj]
+  (compiling source file '../native/Source/Main.cpp')
+      D:\a\amp\amp\native\Source\Widgets.h(202,189):
+      A native nullptr can only be converted to bool or, using reinterpret_cast, to an integral type
+  
+D:\a\amp\amp\native\Source\Widgets.h(202,13): error C2439: 'altui::TrackStrip::{ctor}::<lambda_da850e885c0967e8f4dcbc4e4584b783>::()::<lambda_3e5be2076efdec58df0f7be3bed0bb4f>::sp': member could not be initialized [D:\a\amp\amp\build\AltGuitarAmpRack.vcxproj]
+  (compiling source file '../native/Source/Main.cpp')
+      D:\a\amp\amp\native\Source\Widgets.h(202,13):
+      see declaration of 'altui::TrackStrip::{ctor}::<lambda_da850e885c0967e8f4dcbc4e4584b783>::()::<lambda_3e5be2076efdec58df0f7be3bed0bb4f>::sp'
+  
+D:\a\amp\amp\native\Source\Widgets.h(202,13): error C2512: 'altui::TrackStrip::{ctor}::<lambda_da850e885c0967e8f4dcbc4e4584b783>::()::<lambda_3e5be2076efdec58df0f7be3bed0bb4f>': no appropriate default constructor available [D:\a\amp\amp\build\AltGuitarAmpRack.vcxproj]
+  (compiling source file '../native/Source/Main.cpp')
+      D:\a\amp\amp\native\Source\Widgets.h(202,13):
+      Invalid aggregate initialization
+          D:\a\amp\amp\native\Source\Widgets.h(202,13):
+          'altui::TrackStrip::{ctor}::<lambda_da850e885c0967e8f4dcbc4e4584b783>::()::<lambda_3e5be2076efdec58df0f7be3bed0bb4f>::sp': private and protected members cannot be initialized without a constructor
+  
+D:\a\amp\amp\native\Source\Widgets.h(202,100): error C2660: 'juce::Timer::callAfterDelay': function does not take 1 arguments [D:\a\amp\amp\build\AltGuitarAmpRack.vcxproj]
+  (compiling source file '../native/Source/Main.cpp')
+      D:\a\amp\amp\build\_deps\juce-src\modules\juce_events\timers\juce_Timer.h(132,31):
+      see declaration of 'juce::Timer::callAfterDelay'
+      D:\a\amp\amp\native\Source\Widgets.h(202,100):
+      while trying to match the argument list '(int)'
+  
+  juce_events.cpp
+  juce_core.cpp
+  juce_core_CompilationTime.cpp
+  juce_data_structures.cpp
+  juce_audio_utils.cpp
+  juce_audio_processors.cpp
+  juce_audio_processors_ara.cpp
+  juce_audio_processors_lv2_libs.cpp
+  juce_gui_extra.cpp
+  juce_audio_basics.cpp
+  juce_audio_formats.cpp
+  juce_audio_devices.cpp
