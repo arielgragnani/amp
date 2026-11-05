@@ -75,7 +75,8 @@ public:
             brightBtn.setBounds (a.removeFromLeft (90)); a.removeFromLeft (8);
             cabOnBtn.setBounds (a.removeFromLeft (90)); a.removeFromLeft (8);
             cabBox.setBounds (a.removeFromLeft (150)); a.removeFromLeft (14);
-            micLbl.setBounds (a.removeFromLeft (70)); micSl.setBounds (a.removeFromLeft (150));
+            micLbl.setBounds (a.removeFromLeft (70)); micSl.setBounds (a.removeFromLeft (150)); a.removeFromLeft (20);
+            voicingLbl.setBounds (a.removeFromLeft (60)); voicingBox.setBounds (a.removeFromLeft (190));
         }
         noiseBox = r.removeFromTop (92); r.removeFromTop (8);
         {
@@ -135,6 +136,7 @@ private:
     altui::Knob kVol { "VOLUME", 0, 10, 4 }, kTreb { "TREBLE", 0, 10, 6 }, kMid { "MIDDLE", 0, 10, 4 }, kBass { "BASS", 0, 10, 4 },
                 kRev { "REVERB", 0, 10, 0 }, kTrs { "TREM SPEED", 0, 10, 5 }, kTri { "TREM DEPTH", 0, 10, 0 }, kOut { "OUTPUT", 0, 10, 6 };
     juce::TextButton brightBtn { "Bright" }, cabOnBtn { "Cabinet" }; juce::ComboBox cabBox;
+    juce::Label voicingLbl { {}, "Voicing" }; juce::ComboBox voicingBox;
     juce::Label micLbl { {}, "Mic pos" }; juce::Slider micSl { juce::Slider::LinearHorizontal, juce::Slider::NoTextBox };
     juce::TextButton humBtn { "De-hum" }; juce::ComboBox humHzBox; juce::Label humAmtLbl { {}, "Amount" }; juce::Slider humAmtSl { juce::Slider::LinearHorizontal, juce::Slider::NoTextBox };
     juce::Label humStatus, gateLbl { {}, "Thr" }, learnStatus; juce::TextButton gateBtn { "Gate" }, learnBtn { "Learn" }; juce::Slider gateSl { juce::Slider::LinearHorizontal, juce::Slider::NoTextBox };
@@ -169,11 +171,11 @@ private:
     void buildUi()
     {
         for (auto* c : std::initializer_list<juce::Component*> { &audioBtn, &chanBox, &gainLbl, &gainSl, &meterIn, &meterOut, &latencyLbl, &kVol, &kTreb, &kMid, &kBass, &kRev, &kTrs, &kTri, &kOut,
-                                                                  &brightBtn, &cabOnBtn, &cabBox, &micLbl, &micSl, &humBtn, &humHzBox, &humAmtLbl, &humAmtSl, &humStatus, &gateBtn, &gateLbl, &gateSl,
+                                                                  &brightBtn, &cabOnBtn, &cabBox, &voicingLbl, &voicingBox, &micLbl, &micSl, &humBtn, &humHzBox, &humAmtLbl, &humAmtSl, &humStatus, &gateBtn, &gateLbl, &gateSl,
                                                                   &learnBtn, &learnStatus, &playBtn, &recBtn, &stopBtn, &metBtn, &countBtn, &tapBtn, &compAuto, &timeLbl, &statusLbl, &bpmLbl, &bpmSl,
                                                                   &clickLbl, &clickSl, &compLbl, &compSl, &beatsBox })
             addAndMakeVisible (c);
-        for (auto* l : { &gainLbl, &micLbl, &humAmtLbl, &gateLbl, &clickLbl, &compLbl, &bpmLbl, &latencyLbl, &humStatus, &learnStatus, &statusLbl }) styleLabel (*l);
+        for (auto* l : { &gainLbl, &voicingLbl, &micLbl, &humAmtLbl, &gateLbl, &clickLbl, &compLbl, &bpmLbl, &latencyLbl, &humStatus, &learnStatus, &statusLbl }) styleLabel (*l);
         styleLabel (timeLbl, 20.f, altui::cAmber, juce::Justification::centredLeft); timeLbl.setFont (juce::Font (juce::FontOptions (22.f, juce::Font::bold)));
         timeLbl.setText ("0:00.0", juce::dontSendNotification);
 
@@ -189,7 +191,7 @@ private:
         gainSl.setRange (-12, 24, 0.5); gainSl.setValue (0, juce::dontSendNotification); gainSl.setDoubleClickReturnValue (true, 0); gainSl.onValueChange = [this] { applyInput(); };
         gainSl.setTitle ("Input gain");
 
-        auto bindKnob = [this] (altui::Knob& k, double& dst) { k.s.onValueChange = [this, &k, &dst] { dst = k.s.getValue(); if (! loading) pushParams(); }; };
+        auto bindKnob = [this] (altui::Knob& k, double& dst) { k.s.onValueChange = [this, &k, &dst] { dst = k.s.getValue(); markCustom(); if (! loading) pushParams(); }; };
         bindKnob (kVol, P.vol); bindKnob (kTreb, P.treb); bindKnob (kMid, P.mid); bindKnob (kBass, P.bass); bindKnob (kRev, P.rev); bindKnob (kTrs, P.trs); bindKnob (kTri, P.tri); bindKnob (kOut, P.outVol);
         P.vol = 4; P.treb = 6; P.mid = 4; P.bass = 4; P.rev = 0; P.trs = 5; P.tri = 0; P.outVol = 6;
         for (auto* k : { &kVol, &kTreb, &kMid, &kBass, &kRev, &kTrs, &kTri, &kOut }) k->setInk (altui::cText, altui::cAmber);
@@ -201,6 +203,26 @@ private:
         micSl.setRange (0, 10, 0.1); micSl.setValue (5, juce::dontSendNotification); micSl.setDoubleClickReturnValue (true, 5);
         micSl.onValueChange = [this] { P.mic = micSl.getValue(); if (! loading) pushParams(); }; micSl.setTitle ("Mic position");
 
+        struct Preset { const char* name; double vol, treb, mid, bass, rev, trs, tri; bool bright; int cab; double mic; };
+        static const Preset presets[] = {
+            { "Twin sparkle",    4,   5,   5,   4,   2.5, 5,   0, true,  0, 5 },
+            { "Warm jazz",       3.5, 2.5, 6,   5.5, 2,   5,   0, false, 1, 4 },
+            { "Surf",            4.5, 6,   4,   3,   7,   5.5, 5, true,  0, 6 },
+            { "Edge of breakup", 8,   5,   5.5, 4,   2,   5,   0, false, 1, 5 },
+            { "Bright & dry",    3,   6.5, 4,   3.5, 0,   5,   0, true,  0, 6 } };
+        voicingBox.addItem ("Custom", 1);
+        for (int i = 0; i < 5; ++i) voicingBox.addItem (presets[i].name, 2 + i);
+        voicingBox.setSelectedId (1, juce::dontSendNotification);
+        voicingBox.onChange = [this]
+        {
+            const int id = voicingBox.getSelectedId(); if (id < 2) return;
+            const auto& q = presets[id - 2];
+            loading = true;
+            kVol.s.setValue (q.vol); kTreb.s.setValue (q.treb); kMid.s.setValue (q.mid); kBass.s.setValue (q.bass); kRev.s.setValue (q.rev); kTrs.s.setValue (q.trs); kTri.s.setValue (q.tri);
+            P.bright = q.bright; brightBtn.setToggleState (q.bright, juce::dontSendNotification);
+            cabBox.setSelectedId (q.cab + 1, juce::dontSendNotification); P.cab = q.cab; micSl.setValue (q.mic); P.mic = q.mic;
+            loading = false; pushParams();
+        };
         toggle (humBtn, true, [this] { P.humOn = humBtn.getToggleState(); });
         humHzBox.addItem ("60 Hz", 1); humHzBox.addItem ("50 Hz", 2); humHzBox.setSelectedId (1, juce::dontSendNotification);
         humHzBox.onChange = [this] { P.humHz = humHzBox.getSelectedId() == 2 ? 50 : 60; if (! loading) pushParams(); };
@@ -249,6 +271,7 @@ private:
     }
 
     void pushParams() { rig.setParams (P); }
+    void markCustom() { if (! loading && voicingBox.getSelectedId() != 1) voicingBox.setSelectedId (1, juce::dontSendNotification); }
 
     void applyInput()
     {
