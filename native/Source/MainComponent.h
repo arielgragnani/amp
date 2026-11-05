@@ -209,9 +209,10 @@ private:
             { "Warm jazz",       3.5, 2.5, 6,   5.5, 2,   5,   0, false, 1, 4 },
             { "Surf",            4.5, 6,   4,   3,   7,   5.5, 5, true,  0, 6 },
             { "Edge of breakup", 8,   5,   5.5, 4,   2,   5,   0, false, 1, 5 },
-            { "Bright & dry",    3,   6.5, 4,   3.5, 0,   5,   0, true,  0, 6 } };
+            { "Bright & dry",    3,   6.5, 4,   3.5, 0,   5,   0, true,  0, 6 },
+            { "Fender crunch",   10,  3,   6,   6,   2,   5,   0, false, 1, 2 } };
         voicingBox.addItem ("Custom", 1);
-        for (int i = 0; i < 5; ++i) voicingBox.addItem (presets[i].name, 2 + i);
+        for (int i = 0; i < 6; ++i) voicingBox.addItem (presets[i].name, 2 + i);
         voicingBox.setSelectedId (1, juce::dontSendNotification);
         voicingBox.onChange = [this]
         {
