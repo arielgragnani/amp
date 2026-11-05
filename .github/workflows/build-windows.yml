@@ -40,6 +40,6 @@ jobs:
           if (Test-Path configure.log) { Get-Content configure.log -Tail 120 | Out-File -Encoding utf8 tail-configure.txt }
           if (Test-Path build.log) { Get-Content build.log -Tail 150 | Out-File -Encoding utf8 tail-build.txt }
           if (Test-Path build/CMakeFiles/CMakeError.log) { Get-Content build/CMakeFiles/CMakeError.log -Tail 80 | Out-File -Encoding utf8 cmake-error.txt }
-          git add tail-*.txt cmake-error.txt 2>$null
+          Get-ChildItem tail-*.txt, cmake-error.txt -ErrorAction SilentlyContinue | ForEach-Object { git add -f $_.Name }
           git commit -m "build log" -q
           git push -f origin buildlog
