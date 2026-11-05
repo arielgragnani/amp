@@ -21,9 +21,13 @@ endif()
 juce_add_gui_app(AltGuitarAmpRack PRODUCT_NAME "Alt Guitar Amp Rack" COMPANY_NAME "Alt" VERSION 1.0.0)
 target_sources(AltGuitarAmpRack PRIVATE Source/Main.cpp)
 target_compile_definitions(AltGuitarAmpRack PRIVATE
-  JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_APPLICATION_NAME_STRING="$<TARGET_PROPERTY:AltGuitarAmpRack,JUCE_PRODUCT_NAME>"
-  JUCE_APPLICATION_VERSION_STRING="1.0.0" JUCE_REPORT_APP_USAGE=0 JUCE_DISPLAY_SPLASH_SCREEN=0
-  JUCE_WASAPI=1 JUCE_DIRECTSOUND=1 JUCE_WASAPI_EXCLUSIVE=1 JUCE_ASIO=$<BOOL:${ALT_ASIO}>)
+  JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_REPORT_APP_USAGE=0 JUCE_DISPLAY_SPLASH_SCREEN=0
+  JUCE_WASAPI=1 JUCE_DIRECTSOUND=1 JUCE_WASAPI_EXCLUSIVE=1)
+if(ALT_ASIO)
+  target_compile_definitions(AltGuitarAmpRack PRIVATE JUCE_ASIO=1)
+else()
+  target_compile_definitions(AltGuitarAmpRack PRIVATE JUCE_ASIO=0)
+endif()
 if(ALT_ASIO)
   target_include_directories(AltGuitarAmpRack PRIVATE ${ASIO_SDK_DIR}/common ${ASIO_SDK_DIR}/host ${ASIO_SDK_DIR}/host/pc)
 endif()
