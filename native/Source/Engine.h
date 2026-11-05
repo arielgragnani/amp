@@ -161,18 +161,22 @@ inline double tsPow (const double* o)
     return sum / 11;
 }
 
-// Spring tank: delay line + chain of first-order allpass filters (dispersion) + damping, in a feedback loop
+// Spring tank: modulated delay line + chain of first-order allpass filters (dispersion) + damping, in a feedback loop.
+// The slow delay wobble stops the loop from ringing at fixed pitches like a plain comb filter would.
 struct Spring
 {
-    int D = 1, K = 64, mask = 0, w = 0; double a = -0.7, g = 0.9, lp = 0, dk = 0.3; std::vector<double> buf, z;
-    void init (double sr, double sec, int K_, double a_, double g_, double fc)
+    int D = 1, K = 64, mask = 0, w = 0; double a = -0.7, g = 0.9, lp = 0, dk = 0.3, ph = 0, phInc = 0, depth = 0; std::vector<double> buf, z;
+    void init (double sr, double sec, int K_, double a_, double g_, double fc, double modHz = 0, double modMs = 0, double phase0 = 0)
     {
-        D = (int) std::lround (sec * sr); buf.assign ((size_t) pow2i (D + 8), 0.0); mask = (int) buf.size() - 1; w = 0;
+        D = (int) std::lround (sec * sr); buf.assign ((size_t) pow2i (D + 64), 0.0); mask = (int) buf.size() - 1; w = 0;
         K = K_; a = a_; z.assign ((size_t) K, 0.0); g = g_; lp = 0; dk = 1 - std::exp (-TAU * fc / sr);
+        ph = phase0; phInc = TAU * modHz / sr; depth = modMs * 0.001 * sr;
     }
     inline double p (double x)
     {
-        double v = buf[(size_t) ((w - D) & mask)];
+        ph += phInc; if (ph > TAU) ph -= TAU;
+        const double d = (double) D + depth * std::sin (ph), rp = (double) w - d, fl = std::floor (rp), fr = rp - fl; const int i = (int) fl;
+        double v = buf[(size_t) (i & mask)] * (1 - fr) + buf[(size_t) ((i + 1) & mask)] * fr;
         for (int k = 0; k < K; ++k) { const double y = a * v + z[(size_t) k]; z[(size_t) k] = v - a * y; v = y; }
         lp += (v - lp) * dk;
         buf[(size_t) w] = x + g * lp; w = (w + 1) & mask;
@@ -243,31 +247,47 @@ struct DelayPedal
     }
 };
 
-// Small feedback-delay-network reverb: four delay lines mixed by a Hadamard matrix, damping in each line, two input diffusers
+// Hall reverb: pre-delay, four input diffusers, then an 8-line feedback delay network (Householder mix) with slowly modulated
+// delay lines and damping in every line, so the tail is smooth and dark rather than metallic.
 struct ReverbPedal
 {
-    static constexpr int N = 4;
-    std::vector<double> d[N]; int len[N] = {}, wp[N] = {}; double lp[N] = {}, g[N] = {}, dk = 0.3, sr = 48000;
-    std::vector<double> ap[2]; int apLen[2] = {}, apW[2] = {};
+    static constexpr int N = 8, NA = 4;
+    std::vector<double> d[N], ap[NA], pre; int len[N] = {}, wp[N] = {}, apLen[NA] = {}, apW[NA] = {}, preLen = 1, preW = 0, mask[N] = {};
+    double lp[N] = {}, g[N] = {}, ph[N] = {}, inc[N] = {}, outScale = 5.5, depth = 0, dk = 0.3, sr = 48000, hpz = 0, hpk = 0.01;
     void init (double sampleRate)
     {
-        sr = sampleRate; static const int L[N] = { 1031, 1327, 1523, 1871 }, A[2] = { 142, 107 };
-        for (int i = 0; i < N; ++i) { len[i] = std::max (8, (int) std::lround (L[i] * sr / 48000)); d[i].assign ((size_t) len[i], 0.0); wp[i] = 0; lp[i] = 0; }
-        for (int i = 0; i < 2; ++i) { apLen[i] = std::max (4, (int) std::lround (A[i] * sr / 48000)); ap[i].assign ((size_t) apLen[i], 0.0); apW[i] = 0; }
-        setDecay (1.5); setTone (5);
+        sr = sampleRate; static const int L[N] = { 1429, 1693, 1993, 2371, 2753, 3217, 3613, 4129 }, A[NA] = { 142, 107, 379, 277 };
+        static const double R[N] = { 0.17, 0.23, 0.29, 0.31, 0.37, 0.41, 0.43, 0.47 };
+        for (int i = 0; i < N; ++i)
+        {
+            len[i] = std::max (16, (int) std::lround (L[i] * sr / 48000)); const int sz = pow2i (len[i] + 64); d[i].assign ((size_t) sz, 0.0); mask[i] = sz - 1; wp[i] = 0; lp[i] = 0;
+            ph[i] = i * 0.9; inc[i] = TAU * R[i] / sr;
+        }
+        depth = 5.0 * sr / 48000;
+        for (int i = 0; i < NA; ++i) { apLen[i] = std::max (4, (int) std::lround (A[i] * sr / 48000)); ap[i].assign ((size_t) apLen[i], 0.0); apW[i] = 0; }
+        preLen = std::max (1, (int) std::lround (0.012 * sr)); pre.assign ((size_t) preLen, 0.0); preW = 0; hpz = 0; hpk = 1 - std::exp (-TAU * 140 / sr);
+        setDecay (1.8); setTone (5);
     }
-    void clear() { for (auto& v : d) std::fill (v.begin(), v.end(), 0.0); for (auto& v : ap) std::fill (v.begin(), v.end(), 0.0); for (auto& x : lp) x = 0; }
-    void setDecay (double rt60) { for (int i = 0; i < N; ++i) g[i] = std::pow (10.0, -3.0 * len[i] / (std::max (0.1, rt60) * sr)); }
-    void setTone (double tone) { dk = 1 - std::exp (-TAU * (1500.0 * std::pow (6.0, clampd (tone, 0, 10) / 10)) / sr); }
+    void clear() { for (auto& v : d) std::fill (v.begin(), v.end(), 0.0); for (auto& v : ap) std::fill (v.begin(), v.end(), 0.0); std::fill (pre.begin(), pre.end(), 0.0); for (auto& x : lp) x = 0; hpz = 0; }
+    void setDecay (double rt60) { for (int i = 0; i < N; ++i) g[i] = std::pow (10.0, -3.0 * len[i] / (std::max (0.1, rt60) * sr)); outScale = 5.5 * std::pow (2.0 / std::max (0.3, rt60), 0.4); }
+    void setTone (double tone) { dk = 1 - std::exp (-TAU * (1800.0 * std::pow (4.0, clampd (tone, 0, 10) / 10)) / sr); }   // damping 1.8 kHz .. 7.2 kHz
     inline void process (double x, double& oL, double& oR)
     {
-        for (int i = 0; i < 2; ++i) { const double z = ap[i][(size_t) apW[i]]; const double v = x - 0.6 * z; ap[i][(size_t) apW[i]] = v; x = z + 0.6 * v; apW[i] = (apW[i] + 1) % apLen[i]; }
-        double y[N];
-        for (int i = 0; i < N; ++i) { const double r = d[i][(size_t) wp[i]]; lp[i] += (r - lp[i]) * dk; y[i] = lp[i]; }
-        const double m0 = 0.5 * (y[0] + y[1] + y[2] + y[3]), m1 = 0.5 * (y[0] - y[1] + y[2] - y[3]), m2 = 0.5 * (y[0] + y[1] - y[2] - y[3]), m3 = 0.5 * (y[0] - y[1] - y[2] + y[3]);
-        const double m[N] = { m0, m1, m2, m3 };
-        for (int i = 0; i < N; ++i) { d[i][(size_t) wp[i]] = x * 0.4 + g[i] * m[i]; wp[i] = (wp[i] + 1) % len[i]; }
-        oL = 0.5 * (y[0] + y[2]); oR = 0.5 * (y[1] + y[3]);
+        const double pd = pre[(size_t) preW]; pre[(size_t) preW] = x; preW = (preW + 1) % preLen; x = pd;
+        hpz += (x - hpz) * hpk; x -= hpz;                                            // keep rumble out of the tank
+        static const double AG[NA] = { 0.72, 0.72, 0.62, 0.62 };
+        for (int i = 0; i < NA; ++i) { const double z = ap[i][(size_t) apW[i]], v = x - AG[i] * z; ap[i][(size_t) apW[i]] = v; x = z + AG[i] * v; apW[i] = (apW[i] + 1) % apLen[i]; }
+        double y[N], sum = 0;
+        for (int i = 0; i < N; ++i)
+        {
+            ph[i] += inc[i]; if (ph[i] > TAU) ph[i] -= TAU;
+            const double rp = (double) wp[i] - ((double) len[i] + depth * std::sin (ph[i])), fl = std::floor (rp), fr = rp - fl; const int k = (int) fl;
+            const double r = d[i][(size_t) (k & mask[i])] * (1 - fr) + d[i][(size_t) ((k + 1) & mask[i])] * fr;
+            lp[i] += (r - lp[i]) * dk; y[i] = lp[i] * g[i]; sum += y[i];
+        }
+        const double h = sum * (2.0 / N);
+        for (int i = 0; i < N; ++i) { d[i][(size_t) wp[i]] = x * 0.35 + (y[i] - h); wp[i] = (wp[i] + 1) & mask[i]; }
+        oL = outScale * 0.35 * (y[0] - y[2] + y[4] - y[6] + 0.5 * (y[1] + y[3])); oR = outScale * 0.35 * (y[1] - y[3] + y[5] - y[7] + 0.5 * (y[0] + y[2]));
     }
 };
 
@@ -296,8 +316,9 @@ struct Params
     // amp (knobs 0..10)
     double vol = 4, treb = 5, mid = 5, bass = 4, rev = 2.5, trs = 5, tri = 0;
     bool bright = true;
-    // cabinet: 0 = 2x12 open back, 1 = 1x12 open back
-    int cab = 0; double mic = 5; bool cabOn = true;
+    // cabinet: 0 = 2x12 open back, 1 = 1x12 open back, 2 = 4x12 closed back
+    // mic: position 0 (edge of the cone, dark) .. 10 (centre, bright); micDist 0 (close, bassy) .. 10 (far); micType 0..4
+    int cab = 0; double mic = 5; bool cabOn = true; int micType = 0; double micDist = 3;
     // noise control
     bool humOn = true; int humHz = 60; double humAmt = 10;
     bool gateOn = true; double gateThr = -58;
@@ -313,7 +334,13 @@ struct Params
 };
 
 struct CabVoicing { double hp, rf, rg, pf, pk, df, dg, lp; };
-static const CabVoicing CABS[2] = { { 70, 100, 2.0, 3000, 3.5, 6800, -2.0, 8200 }, { 80, 115, 2.5, 2600, 3.0, 5800, -2.5, 7400 } };
+static const CabVoicing CABS[3] = { { 70, 100, 2.0, 3000, 3.5, 6800, -2.0, 8200 }, { 80, 115, 2.5, 2600, 3.0, 5800, -2.5, 7400 }, { 75, 95, 3.0, 2300, 4.5, 5000, -3.5, 6800 } };
+struct MicVoicing { double f1, g1, q1, f2, g2, q2; };    // two peaking filters that give each microphone its character
+static const MicVoicing MICS[5] = { { 5500, 2.0, 1.1, 140, -1.0, 0.9 },   // dynamic, 57-style: gentle presence bump
+                                    { 4500, -3.5, 0.7, 200, 2.5, 0.8 },   // ribbon, 121-style: dark and warm
+                                    { 9000, 2.5, 0.6, 3000, 1.0, 0.8 },   // large condenser: open top end
+                                    { 650, -2.0, 0.9, 4000, 3.0, 1.0 },   // dynamic, 421-style: scooped mids
+                                    { 120, 2.5, 0.8, 8000, 1.5, 0.7 } };  // tube condenser: big and smooth
 
 class Engine
 {
@@ -342,12 +369,12 @@ public:
         std::fill (std::begin (mc), std::end (mc), 1.0);
         sagEnv = 0; sagKa = 1 - std::exp (-1 / (0.02 * sr * 4)); sagKr = 1 - std::exp (-1 / (0.16 * sr * 4));
         trPh = 0;
-        spA.init (sr, 0.0343, 64, -0.74, 0.92, 3300); spB.init (sr, 0.0419, 64, -0.70, 0.92, 3000);
+        spA.init (sr, 0.0343, 32, -0.60, 0.88, 3300, 0.8, 0.6, 0.0); spB.init (sr, 0.0419, 32, -0.56, 0.88, 3036, 1.1, 0.6, 2.0);
         spAct = 0; spLo = 0; spHk = 1 - std::exp (-TAU * 190 / sr); spTail = 0;
         { double o[14]; tsDesign (0.6, 0.4, 0.4, s4, o); tsRef = tsPow (o); }
         std::fill (std::begin (tsZ), std::end (tsZ), 0.0); brZ = 0;
         aHp[0] = aHp[1] = aLp[0] = aLp[1] = tP = tPh = Bq();
-        cHp = cRes = cPk = cDip = cL1 = cL2 = Bq();
+        cHp = cRes = cPk = cDip = cL1 = cL2 = cM1 = cM2 = cProx = Bq();
         pedC.init (sr); pedD.init (&hb, sr); pedL.init (sr); pedR.init (sr); dlyLive = rvbLive = false;
         fade = fadeOld = 1; haveP = false; cabIdx = -1;
         std::fill (cur, cur + NP, 0.0); std::fill (old, old + NP, 0.0); std::fill (tgt, tgt + NP, 0.0);
@@ -356,8 +383,8 @@ public:
     void setParams (const Params& P)
     {
         derive (P);
-        if (! haveP) { std::copy (tgt, tgt + NP, cur); std::copy (tgt, tgt + NP, old); coefs(); fade = fadeOld = 1; cabIdx = P.cab; haveP = true; }
-        else if (P.cab != cabIdx) { cabIdx = P.cab; fade = 0; fadeOld = 0; }
+        if (! haveP) { std::copy (tgt, tgt + NP, cur); std::copy (tgt, tgt + NP, old); coefs(); fade = fadeOld = 1; cabIdx = P.cab * 16 + P.micType; haveP = true; }
+        else if (P.cab * 16 + P.micType != cabIdx) { cabIdx = P.cab * 16 + P.micType; fade = 0; fadeOld = 0; }
     }
 
     // Start a 2-second noise-floor measurement (keep the strings muted). Result appears in learn* atomics.
@@ -373,7 +400,7 @@ public:
     double sampleRate() const { return sr; }
 
 private:
-    enum { GateThr, GateOn, AT, AM, AL, AV, ABr, AG1, AG2, APg, ATrim, ATrR, ATrD, SpMix, ASag, CabOn, CabHP, CabRF, CabRG, CabPF, CabPG, CabDF, CabDG, CabLP, Vol, HumAmt, AGn, CoOn, CoLv, PdOn, PdLv, DlOn, DlTime, DlFb, DlMix, RvOn, RvMix, NP };
+    enum { GateThr, GateOn, AT, AM, AL, AV, ABr, AG1, AG2, APg, ATrim, ATrR, ATrD, SpMix, ASag, CabOn, CabHP, CabRF, CabRG, CabPF, CabPG, CabDF, CabDG, CabLP, Vol, HumAmt, AGn, CoOn, CoLv, PdOn, PdLv, DlOn, DlTime, DlFb, DlMix, RvOn, RvMix, CabM1F, CabM1G, CabM2F, CabM2G, CabProx, NP };
     double sr = 48000, s4 = 192000;
     HB hb; Os4 osD, osA;
     double tgt[NP], cur[NP], old[NP]; bool haveP = false; int cabIdx = -1; double fade = 1, fadeOld = 1;
@@ -392,7 +419,7 @@ private:
     // spring
     Spring spA, spB; double spAct = 0, spLo = 0, spHk = 0, spTail = 0;
     // cab
-    Bq cHp, cRes, cPk, cDip, cL1, cL2;
+    Bq cHp, cRes, cPk, cDip, cL1, cL2, cM1, cM2, cProx; double mq1 = 1, mq2 = 1;
     // work buffers
     double b1[128], u[128 * 4], tg[128];
     // pedals
@@ -421,9 +448,10 @@ private:
         t[ATrR] = 0.8 * std::pow (15.0, clampd (P.trs, 0, 10) / 10); t[ATrD] = P.tri <= 0 ? 0 : 0.92 * std::pow (clampd (P.tri, 0, 10) / 10, 1.1);
         t[SpMix] = P.rev <= 0 ? 0 : std::pow (clampd (P.rev, 0, 10) / 10, 1.5);
         { const double pos = vol / 2.5; const int i0 = std::min (3, (int) std::floor (pos)); const double fr = pos - i0; t[ATrim] = dbl (lerpd (FEN::lc[i0], FEN::lc[i0 + 1], fr)); }
-        const CabVoicing& c = CABS[P.cab == 1 ? 1 : 0]; const double mic = clampd (P.mic, 0, 10) / 10;
+        const CabVoicing& c = CABS[P.cab < 0 ? 0 : (P.cab > 2 ? 2 : P.cab)]; const MicVoicing& mv = MICS[P.micType < 0 ? 0 : (P.micType > 4 ? 4 : P.micType)]; const double md = clampd (P.micDist, 0, 10) / 10; const double mic = clampd (P.mic, 0, 10) / 10;
         t[CabOn] = P.cabOn ? 1 : 0; t[CabHP] = c.hp; t[CabRF] = c.rf; t[CabRG] = c.rg;
-        t[CabPF] = c.pf; t[CabPG] = c.pk + (mic - 0.5) * 4; t[CabDF] = c.df; t[CabDG] = c.dg; t[CabLP] = c.lp * (0.78 + 0.44 * mic);
+        t[CabPF] = c.pf; t[CabPG] = c.pk + (mic - 0.5) * 4; t[CabDF] = c.df; t[CabDG] = c.dg; t[CabLP] = c.lp * (0.78 + 0.44 * mic) * (1 - 0.12 * (md - 0.3));
+        t[CabM1F] = mv.f1; t[CabM1G] = mv.g1; t[CabM2F] = mv.f2; t[CabM2G] = mv.g2; mq1 = mv.q1; mq2 = mv.q2; t[CabProx] = (0.3 - md) * 6.0;
         t[Vol] = std::pow (clampd (P.outVol, 0, 10) / 10, 1.5) / std::pow (0.6, 1.5);
         t[HumAmt] = P.humOn ? clampd (P.humAmt, 0, 10) / 10 : 0;
         humNom = P.humHz == 50 ? 50 : 60;
@@ -449,6 +477,7 @@ private:
         tP.set (BqType::LP, 11000, 0.707, 0, s4); tPh.set (BqType::HP, 38, 0.707, 0, s4);
         cHp.set (BqType::HP, c[CabHP], 0.707, 0, sr); cRes.set (BqType::Peak, c[CabRF], 1, c[CabRG], sr);
         cPk.set (BqType::Peak, c[CabPF], 0.9, c[CabPG], sr); cDip.set (BqType::Peak, c[CabDF], 1.4, c[CabDG], sr);
+        cM1.set (BqType::Peak, c[CabM1F], mq1, c[CabM1G], sr); cM2.set (BqType::Peak, c[CabM2F], mq2, c[CabM2G], sr); cProx.set (BqType::LowShelf, 160, 0.7, c[CabProx], sr);
         cL1.set (BqType::LP, c[CabLP], 0.5412, 0, sr); cL2.set (BqType::LP, c[CabLP], 1.3066, 0, sr);
     }
     void flushAll()
@@ -457,7 +486,7 @@ private:
         for (int i = 0; i < 2; ++i) { aHp[i].flush(); aLp[i].flush(); }
         tP.flush(); tPh.flush(); flushArr (tsZ); flushv (brZ); spA.flush(); spB.flush();
         flushv (sagEnv); flushv (spLo);
-        cHp.flush(); cRes.flush(); cPk.flush(); cDip.flush(); cL1.flush(); cL2.flush();
+        cHp.flush(); cRes.flush(); cPk.flush(); cDip.flush(); cL1.flush(); cL2.flush(); cM1.flush(); cM2.flush(); cProx.flush();
         osA.flush(); osD.flush(); flushv (gEnv);
         flushArr (ha); flushArr (hw);
         for (int k = 0; k < HK; ++k) { const double m = 1 / std::hypot (hc[k], hs[k]); hc[k] *= m; hs[k] *= m; }
@@ -628,7 +657,7 @@ private:
         if (cb0 > 1e-5 || cb1 > 1e-5)
             for (int i = 0; i < n; ++i)
             {
-                const double v = b1[i], w = cL2.p (cL1.p (cDip.p (cPk.p (cRes.p (cHp.p (v))))));
+                const double v = b1[i], w = cL2.p (cL1.p (cM2.p (cM1.p (cProx.p (cDip.p (cPk.p (cRes.p (cHp.p (v)))))))));
                 const double e = cb0 + (cb1 - cb0) * (i + 1) * inv;
                 b1[i] = v * (1 - e) + w * 1.6 * e;
             }
@@ -662,7 +691,7 @@ private:
             if (rvbAct)
             {
                 const double e = old[RvOn] + (cur[RvOn] - old[RvOn]) * t; double wl, wr; pedR.process ((l + r) * 0.5, wl, wr);
-                const double mx = lerpd (old[RvMix], cur[RvMix], t) * e * 1.6; l += wl * mx; r += wr * mx;
+                const double mx = lerpd (old[RvMix], cur[RvMix], t) * e * 1.0; l += wl * mx; r += wr * mx;
             }
             const double vol = (v0 + (v1 - v0) * t) * (fadeOld + (fade - fadeOld) * t);
             oL[i] = (float) softLimit (l * vol); oR[i] = (float) softLimit (r * vol);

@@ -23,3 +23,6 @@ Click a tab, or press the **Left / Right arrow keys**. Turning any knob switches
 
 ## Licences
 Built with JUCE (AGPLv3 or commercial/personal licence). The ASIO SDK is Steinberg's and is not redistributed; the build downloads it directly from Steinberg. Check both licences before sharing the app beyond your own classroom.
+
+## Font
+The signature in the title bar uses Sacramento (Copyright 2012 The Sacramento Project Authors), licensed under the SIL Open Font License 1.1 (https://openfontlicense.org).

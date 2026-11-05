@@ -220,8 +220,8 @@ public:
 class TrackStrip : public juce::Component
 {
 public:
-    juce::TextButton arm { juce::String::fromUTF8 ("\xE2\x97\x8F") }, mute { "M" }, solo { "S" }, reamp { "Re-amp" }, wet { "Wet" }, dry { "Dry" }, clear { juce::String::fromUTF8 ("\xE2\x9C\x95") };
-    juce::Label name; juce::Slider vol { juce::Slider::LinearHorizontal, juce::Slider::NoTextBox }; Wave wave;
+    juce::TextButton arm { juce::String::fromUTF8 ("\xE2\x97\x8F") }, mute { "M" }, solo { "S" }, reamp { "Re-amp" }, exportBtn { "Export WAV" }, clear { juce::String::fromUTF8 ("\xE2\x9C\x95") };
+    juce::Label name, panLbl { {}, "Pan" }, volLbl { {}, "Vol" }; juce::Slider vol { juce::Slider::LinearHorizontal, juce::Slider::NoTextBox }, pan { juce::Slider::LinearHorizontal, juce::Slider::NoTextBox }; Wave wave;
     std::function<void (int, bool)> onExport; std::function<void (int)> onArm, onClear;
     TrackStrip (alt::RigAudio& r, int i, std::function<double()> view) : rig (r), idx (i)
     {
@@ -237,15 +237,22 @@ public:
         reamp.onClick = [this] { rig.tracks[(size_t) idx].reamp = reamp.getToggleState(); };
         vol.setRange (0.0, 1.5, 0.01); vol.setValue (1.0, juce::dontSendNotification); vol.setDoubleClickReturnValue (true, 1.0);
         vol.onValueChange = [this] { rig.tracks[(size_t) idx].vol = (float) vol.getValue(); };
-        wet.setTooltip ("Save the recorded amp sound as a 24-bit WAV"); dry.setTooltip ("Save the clean guitar as a 24-bit WAV, for re-amping elsewhere");
-        wet.onClick = [this] { if (onExport) onExport (idx, true); }; dry.onClick = [this] { if (onExport) onExport (idx, false); };
+        pan.setRange (-1.0, 1.0, 0.01); pan.setValue (0.0, juce::dontSendNotification); pan.setDoubleClickReturnValue (true, 0.0); pan.setTooltip ("Pan (double-click to centre)");
+        pan.onValueChange = [this] { rig.tracks[(size_t) idx].pan = (float) pan.getValue(); };
+        for (auto* l : { &panLbl, &volLbl }) { l->setFont (juce::Font (juce::FontOptions (11.f))); l->setColour (juce::Label::textColourId, cDim); l->setJustificationType (juce::Justification::centredRight); l->setInterceptsMouseClicks (false, false); }
+        exportBtn.setTooltip ("Save this track as a 24-bit WAV file");
+        exportBtn.onClick = [this]
+        {
+            juce::PopupMenu m; m.addItem (1, "Amp sound (what you heard)"); m.addItem (2, "Clean guitar (dry, for re-amping)");
+            m.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (&exportBtn), [this] (int r) { if (r > 0 && onExport) onExport (idx, r == 1); });
+        };
         clear.onClick = [this]
         {
             if (! confirmClear) { confirmClear = true; clear.setButtonText ("Sure?"); scheduleReset(); return; }
             resetClear(); if (onClear) onClear (idx);
         };
         wave.rig = &r; wave.index = i; wave.viewSecs = std::move (view);
-        for (auto* c : std::initializer_list<juce::Component*> { &arm, &name, &wave, &mute, &solo, &vol, &reamp, &wet, &dry, &clear }) addAndMakeVisible (c);
+        for (auto* c : std::initializer_list<juce::Component*> { &arm, &name, &wave, &mute, &solo, &vol, &pan, &panLbl, &volLbl, &reamp, &exportBtn, &clear }) addAndMakeVisible (c);
     }
     void scheduleReset()
     {
@@ -257,7 +264,7 @@ public:
     {
         arm.setToggleState (isArmed, juce::dontSendNotification); arm.setEnabled (! recording);
         auto d = rig.tracks[(size_t) idx].get(); wave.data = d;
-        reamp.setEnabled (d != nullptr && ! recording); wet.setEnabled (d != nullptr); dry.setEnabled (d != nullptr); clear.setEnabled (d != nullptr && ! recording);
+        reamp.setEnabled (d != nullptr && ! recording); exportBtn.setEnabled (d != nullptr); clear.setEnabled (d != nullptr && ! recording);
         wave.repaint(); repaint();
     }
     void paint (juce::Graphics& g) override
@@ -271,8 +278,9 @@ public:
         auto r = getLocalBounds().reduced (6, 5);
         arm.setBounds (r.removeFromLeft (30).withSizeKeepingCentre (30, 28)); r.removeFromLeft (6);
         name.setBounds (r.removeFromLeft (70)); r.removeFromLeft (4);
-        clear.setBounds (r.removeFromRight (34)); r.removeFromRight (4); dry.setBounds (r.removeFromRight (42)); r.removeFromRight (4); wet.setBounds (r.removeFromRight (42)); r.removeFromRight (4);
-        reamp.setBounds (r.removeFromRight (64)); r.removeFromRight (6); vol.setBounds (r.removeFromRight (110)); r.removeFromRight (6);
+        clear.setBounds (r.removeFromRight (34)); r.removeFromRight (4); exportBtn.setBounds (r.removeFromRight (92)); r.removeFromRight (4);
+        reamp.setBounds (r.removeFromRight (64)); r.removeFromRight (8); vol.setBounds (r.removeFromRight (86)); volLbl.setBounds (r.removeFromRight (26)); r.removeFromRight (6);
+        pan.setBounds (r.removeFromRight (76)); panLbl.setBounds (r.removeFromRight (26)); r.removeFromRight (6);
         solo.setBounds (r.removeFromRight (30)); r.removeFromRight (4); mute.setBounds (r.removeFromRight (30)); r.removeFromRight (8);
         wave.setBounds (r);
     }

@@ -18,7 +18,7 @@ public:
 class AltApp : public juce::JUCEApplication
 {
 public:
-    const juce::String getApplicationName() override { return juce::String::fromUTF8 ("Ariel\xE2\x80\x99s Signature Amp Rack"); }
+    const juce::String getApplicationName() override { return juce::String::fromUTF8 ("Ariel Gragnani\xE2\x80\x99s Amp Rack"); }
     const juce::String getApplicationVersion() override { return "1.1.0"; }
     bool moreThanOneInstanceAllowed() override { return false; }
     void initialise (const juce::String&) override { win = std::make_unique<Win> (getApplicationName()); }

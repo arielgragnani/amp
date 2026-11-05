@@ -356,4 +356,147 @@ public:
 private:
     juce::uint32 lastSeen = 0;
 };
+
+// ---------- cabinet / microphone view ----------
+class CabinetView : public juce::Component
+{
+public:
+    // cab uses the engine numbering: 0 = 2x12 open back, 1 = 1x12 open back, 2 = 4x12 closed back
+    std::function<void()> onBack;
+    std::function<void (int cab, int micType, double micPos, double micDist)> onChange;
+    juce::TextButton cabBtn[3] { juce::TextButton ("1x12 open back"), juce::TextButton ("2x12 open back"), juce::TextButton ("4x12 closed back") };
+    juce::TextButton micBtn[5] { juce::TextButton ("Dynamic 57"), juce::TextButton ("Ribbon 121"), juce::TextButton ("Condenser"), juce::TextButton ("Dynamic 421"), juce::TextButton ("Tube Condenser") };
+    juce::TextButton backBtn { "Back to amp" };
+    juce::Slider distSl { juce::Slider::LinearHorizontal, juce::Slider::NoTextBox };
+
+    CabinetView()
+    {
+        for (int i = 0; i < 3; ++i) { auto& b = cabBtn[i]; b.setRadioGroupId (11); b.setClickingTogglesState (true); addAndMakeVisible (b); b.onClick = [this, i] { if (b_ok (cabBtn[i])) { cab = cabOf (i); layoutMic (true); fire(); repaint(); } }; }
+        for (int i = 0; i < 5; ++i) { auto& b = micBtn[i]; b.setRadioGroupId (12); b.setClickingTogglesState (true); addAndMakeVisible (b); b.onClick = [this, i] { if (b_ok (micBtn[i])) { micType = i; fire(); repaint(); } }; }
+        distSl.setRange (0, 10, 0.1); distSl.setValue (3, juce::dontSendNotification); distSl.setDoubleClickReturnValue (true, 3); distSl.setTitle ("Mic distance");
+        distSl.onValueChange = [this] { micDist = distSl.getValue(); fire(); repaint(); }; addAndMakeVisible (distSl);
+        addAndMakeVisible (backBtn); backBtn.onClick = [this] { if (onBack) onBack(); };
+        setWantsKeyboardFocus (false);
+    }
+    void setState (int cab_, int micType_, double micPos_, double micDist_)
+    {
+        cab = cab_; micType = micType_; micDist = micDist_; micPos = micPos_;
+        cabBtn[0].setToggleState (cab == 1, juce::dontSendNotification); cabBtn[1].setToggleState (cab == 0, juce::dontSendNotification); cabBtn[2].setToggleState (cab == 2, juce::dontSendNotification);
+        for (int i = 0; i < 5; ++i) micBtn[i].setToggleState (i == micType, juce::dontSendNotification);
+        distSl.setValue (micDist, juce::dontSendNotification);
+        layoutMic (false);
+        repaint();
+    }
+    void paint (juce::Graphics& g) override
+    {
+        auto r = getLocalBounds().toFloat();
+        g.setGradientFill (juce::ColourGradient (juce::Colour (0xff1e1c19), 0, 0, juce::Colour (0xff0b0a09), 0, r.getBottom(), false)); g.fillRoundedRectangle (r, 10.f);
+        g.setColour (juce::Colour (0xff4a3a24)); g.drawRoundedRectangle (r.reduced (0.5f), 10.f, 1.5f);
+        const auto bf = baffle();
+        // cabinet box (covering) and baffle board
+        auto box = bf.expanded (16.f); altui::fillTweed (g, box, 8.f, 3);
+        const bool closed = cab == 2;
+        g.setGradientFill (juce::ColourGradient (closed ? juce::Colour (0xff2a2724) : juce::Colour (0xffb98f55), bf.getX(), bf.getY(), closed ? juce::Colour (0xff12100f) : juce::Colour (0xff7d5a30), bf.getRight(), bf.getBottom(), false)); g.fillRoundedRectangle (bf, 3.f);
+        g.saveState(); juce::Path bp; bp.addRoundedRectangle (bf, 3.f); g.reduceClipRegion (bp);
+        for (int i = 0; i < (int) bf.getHeight(); i += 3) { unsigned h = (unsigned) i * 2246822519u; h ^= h >> 15; g.setColour ((closed ? juce::Colours::white : juce::Colours::black).withAlpha (0.03f + 0.05f * ((h & 7) / 7.f))); g.fillRect (bf.getX(), bf.getY() + (float) i, bf.getWidth(), 1.f + (h & 1)); }
+        g.restoreState();
+        g.setColour (juce::Colours::black.withAlpha (0.6f)); g.drawRoundedRectangle (bf, 3.f, 1.5f);
+        for (auto& s : speakers()) drawSpeaker (g, s.centre, s.radius);
+        if (closed) { g.setColour (juce::Colours::white.withAlpha (0.35f)); g.setFont (juce::Font (juce::FontOptions (11.f, juce::Font::bold))); g.drawText ("CLOSED BACK", bf.toNearestInt().withHeight (16).translated (0, -36), juce::Justification::centred); }
+        else { g.setColour (juce::Colours::white.withAlpha (0.35f)); g.setFont (juce::Font (juce::FontOptions (11.f, juce::Font::bold))); g.drawText ("OPEN BACK", bf.toNearestInt().withHeight (16).translated (0, -36), juce::Justification::centred); }
+        drawMic (g);
+        // right side captions
+        auto rc = juce::Rectangle<int> (cx0, 0, getWidth() - cx0 - 14, getHeight());
+        g.setColour (cDim); g.setFont (juce::Font (juce::FontOptions (12.f, juce::Font::bold)));
+        g.drawText ("CABINET", rc.getX(), 10, 200, 16, juce::Justification::centredLeft); g.drawText ("MICROPHONE", rc.getX(), 66, 200, 16, juce::Justification::centredLeft);
+        g.drawText ("DISTANCE", rc.getX(), 172, 100, 16, juce::Justification::centredLeft);
+        g.setFont (juce::Font (juce::FontOptions (11.f))); g.drawText ("close - more bass", rc.getX(), 212, 140, 14, juce::Justification::centredLeft); g.drawText ("far - thinner", rc.getRight() - 160, 212, 160, 14, juce::Justification::centredRight);
+        g.setColour (cAmber.withAlpha (0.85f)); g.setFont (juce::Font (juce::FontOptions (12.f)));
+        g.drawText (juce::String ("Drag the mic over the speaker.  Centre of the cone = bright,  edge = dark.   Position ") + juce::String (micPos, 1) + " / 10", rc.getX(), 144, rc.getWidth(), 24, juce::Justification::topLeft);
+    }
+    void resized() override
+    {
+        cx0 = 520; auto rc = juce::Rectangle<int> (cx0, 0, getWidth() - cx0 - 14, getHeight());
+        { int x = rc.getX(); const int bw = 150; for (int i = 0; i < 3; ++i) { cabBtn[i].setBounds (x, 28, bw, 26); x += bw + 8; } }
+        { int x = rc.getX(), y = 84; for (int i = 0; i < 5; ++i) { micBtn[i].setBounds (x, y, 150, 26); x += 158; if (i == 2) { x = rc.getX(); y += 30; } } }
+        distSl.setBounds (rc.getX(), 188, rc.getWidth(), 22);
+        backBtn.setBounds (12, getHeight() - 32, 120, 24);
+    }
+    void mouseDown (const juce::MouseEvent& e) override { dragMic (e.position); }
+    void mouseDrag (const juce::MouseEvent& e) override { dragMic (e.position); }
+    juce::MouseCursor getMouseCursor() override { return juce::MouseCursor::CrosshairCursor; }
+private:
+    int cab = 1, micType = 0, cx0 = 520; double micPos = 5, micDist = 3; juce::Point<float> xy; bool haveXY = false;
+    struct Spk { juce::Point<float> centre; float radius; };
+    static bool b_ok (const juce::Button& b) { return b.getToggleState(); }
+    static int cabOf (int btn) { return btn == 0 ? 1 : (btn == 1 ? 0 : 2); }   // button order -> engine numbering
+    juce::Rectangle<float> baffle() const
+    {
+        const float areaW = 470.f, areaH = (float) getHeight() - 78.f; const float cx = 16.f + areaW * 0.5f, cy = 40.f + areaH * 0.5f;
+        float w = 230, h = 230; if (cab == 0) { w = 400; h = 200; } else if (cab == 2) { w = 250; h = 250; }
+        h = std::min (h, areaH); if (cab != 0) w = h; return juce::Rectangle<float> (w, h).withCentre ({ cx, cy });
+    }
+    std::vector<Spk> speakers() const
+    {
+        const auto b = baffle(); std::vector<Spk> v;
+        if (cab == 1) v.push_back ({ b.getCentre(), std::min (b.getWidth(), b.getHeight()) * 0.5f - 12.f });
+        else if (cab == 0) { const float R = b.getHeight() * 0.5f - 12.f; v.push_back ({ { b.getX() + b.getWidth() * 0.25f, b.getCentreY() }, R }); v.push_back ({ { b.getX() + b.getWidth() * 0.75f, b.getCentreY() }, R }); }
+        else { const float R = b.getWidth() * 0.25f - 8.f; for (int i = 0; i < 4; ++i) v.push_back ({ { b.getX() + b.getWidth() * (0.25f + 0.5f * (i % 2)), b.getY() + b.getHeight() * (0.25f + 0.5f * (i / 2)) }, R }); }
+        return v;
+    }
+    Spk nearest (juce::Point<float> p) const { auto sp = speakers(); Spk best = sp[0]; float bd = 1e9f; for (auto& s : sp) { const float d = s.centre.getDistanceFrom (p); if (d < bd) { bd = d; best = s; } } return best; }
+    double posFromXY() const { const auto s = nearest (xy); return juce::jlimit (0.0, 10.0, 10.0 * (1.0 - (double) (s.centre.getDistanceFrom (xy) / s.radius))); }
+    void layoutMic (bool keepRadius)
+    {
+        const auto sp = speakers(); const auto s = sp[0];
+        const double pos = keepRadius && haveXY ? posFromXY() : micPos; const float rr = (float) (1.0 - pos / 10.0) * s.radius;
+        xy = { s.centre.x + std::cos (-0.75f) * rr, s.centre.y + std::sin (-0.75f) * rr }; haveXY = true; micPos = pos;
+    }
+    void dragMic (juce::Point<float> p)
+    {
+        const auto bf = baffle().reduced (4.f); xy = { juce::jlimit (bf.getX(), bf.getRight(), p.x), juce::jlimit (bf.getY(), bf.getBottom(), p.y) }; haveXY = true;
+        micPos = posFromXY(); fire(); repaint();
+    }
+    void fire() { if (onChange) onChange (cab, micType, micPos, micDist); }
+
+    static void drawSpeaker (juce::Graphics& g, juce::Point<float> c, float R)
+    {
+        g.setColour (juce::Colours::black.withAlpha (0.55f)); g.fillEllipse (c.x - R - 2, c.y - R + 3, (R + 2) * 2, (R + 2) * 2);
+        g.setGradientFill (juce::ColourGradient (juce::Colour (0xff8d9096), c.x - R, c.y - R, juce::Colour (0xff3a3c40), c.x + R, c.y + R, false)); g.fillEllipse (c.x - R, c.y - R, R * 2, R * 2);   // steel frame
+        g.setColour (juce::Colour (0xff111214)); g.drawEllipse (c.x - R, c.y - R, R * 2, R * 2, 1.4f);
+        for (int i = 0; i < 8; ++i) { const float a = i * juce::MathConstants<float>::twoPi / 8 + 0.2f; const float x = c.x + std::cos (a) * R * 0.93f, y = c.y + std::sin (a) * R * 0.93f;
+                                       g.setColour (juce::Colours::black.withAlpha (0.7f)); g.fillEllipse (x - 3.2f, y - 3.2f, 6.4f, 6.4f); g.setColour (juce::Colour (0xffc6c9cf)); g.fillEllipse (x - 2.2f, y - 2.4f, 4.4f, 4.4f); }
+        const float Rs = R * 0.86f;                                                                                                                                         // rubber surround
+        g.setGradientFill (juce::ColourGradient (juce::Colour (0xff2b2a28), c.x - Rs, c.y - Rs, juce::Colour (0xff0e0e0d), c.x + Rs, c.y + Rs, false)); g.fillEllipse (c.x - Rs, c.y - Rs, Rs * 2, Rs * 2);
+        const float Rc = R * 0.78f;                                                                                                                                         // paper cone
+        g.setGradientFill (juce::ColourGradient (juce::Colour (0xffd8c9a6), c.x - Rc * 0.6f, c.y - Rc * 0.7f, juce::Colour (0xff6b5a3c), c.x + Rc * 0.8f, c.y + Rc * 0.9f, true)); g.fillEllipse (c.x - Rc, c.y - Rc, Rc * 2, Rc * 2);
+        for (int i = 1; i < 14; ++i) { const float rr = Rc * (0.30f + 0.70f * i / 14.f); g.setColour (juce::Colours::black.withAlpha (0.08f + 0.05f * (i % 2))); g.drawEllipse (c.x - rr, c.y - rr, rr * 2, rr * 2, 1.f); }
+        const float Rd = R * 0.27f;                                                                                                                                         // dust cap
+        g.setGradientFill (juce::ColourGradient (juce::Colour (0xff5b4a30), c.x - Rd * 0.5f, c.y - Rd * 0.6f, juce::Colour (0xff1c150c), c.x + Rd, c.y + Rd, false)); g.fillEllipse (c.x - Rd, c.y - Rd, Rd * 2, Rd * 2);
+        g.setColour (juce::Colours::white.withAlpha (0.15f)); g.fillEllipse (c.x - Rd * 0.55f, c.y - Rd * 0.8f, Rd * 0.9f, Rd * 0.4f);
+    }
+    void drawMic (juce::Graphics& g) const
+    {
+        struct Look { juce::Colour body, head, band; float w, len, headR; } looks[5] = {
+            { juce::Colour (0xff6c6f75), juce::Colour (0xff2a2b2e), juce::Colour (0xff111113), 20.f, 110.f, 12.f },   // dynamic 57
+            { juce::Colour (0xff1a1a1c), juce::Colour (0xffc7c9cc), juce::Colour (0xff77797e), 24.f, 130.f, 13.f },   // ribbon
+            { juce::Colour (0xffcdbb95), juce::Colour (0xffd9d3c3), juce::Colour (0xff6e6044), 26.f, 120.f, 14.f },   // condenser
+            { juce::Colour (0xff1a1a1c), juce::Colour (0xffb7babf), juce::Colour (0xff3a3b3e), 24.f, 116.f, 13.f },   // 421
+            { juce::Colour (0xffb9b4a6), juce::Colour (0xffd8d2c4), juce::Colour (0xff4b4639), 30.f, 140.f, 16.f } }; // tube
+        auto L = looks[juce::jlimit (0, 4, micType)]; L.len *= 0.78f;
+        const juce::Point<float> dir (0.8f, -0.6f), perp (0.6f, 0.8f);           // body trails up and to the right
+        auto at = [&] (float along, float across) { return juce::Point<float> (xy.x + dir.x * along + perp.x * across, xy.y + dir.y * along + perp.y * across); };
+        juce::Path body; body.startNewSubPath (at (10.f, -L.w * 0.5f)); body.lineTo (at (L.len, -L.w * 0.5f)); body.lineTo (at (L.len, L.w * 0.5f)); body.lineTo (at (10.f, L.w * 0.5f)); body.closeSubPath();
+        g.setColour (juce::Colours::black.withAlpha (0.4f)); g.fillPath (body, juce::AffineTransform::translation (5.f, 7.f));
+        g.setGradientFill (juce::ColourGradient (L.body.brighter (0.4f), at (60.f, -L.w * 0.5f), L.body.darker (0.5f), at (60.f, L.w * 0.5f), false)); g.fillPath (body);
+        g.setColour (L.band); { juce::Path ring; ring.startNewSubPath (at (L.len * 0.55f, -L.w * 0.5f)); ring.lineTo (at (L.len * 0.55f, L.w * 0.5f)); g.strokePath (ring, juce::PathStrokeType (5.f)); }
+        g.setColour (juce::Colours::black.withAlpha (0.8f)); g.strokePath (body, juce::PathStrokeType (1.2f));
+        juce::Path cable; cable.startNewSubPath (at (L.len, 0)); cable.quadraticTo (at (L.len + 40.f, 30.f), at (L.len + 70.f, 8.f)); g.setColour (juce::Colours::black); g.strokePath (cable, juce::PathStrokeType (4.f));
+        const auto hc = at (2.f, 0.f);                                                                                         // capsule head, tip at the cone
+        g.setGradientFill (juce::ColourGradient (L.head.brighter (0.3f), hc.x - L.headR * 0.5f, hc.y - L.headR * 0.5f, L.head.darker (0.6f), hc.x + L.headR, hc.y + L.headR, true)); g.fillEllipse (hc.x - L.headR, hc.y - L.headR, L.headR * 2, L.headR * 2);
+        g.setColour (juce::Colours::black.withAlpha (0.45f)); for (int i = -2; i <= 2; ++i) { g.drawLine (hc.x - L.headR * 0.7f, hc.y + i * 4.f, hc.x + L.headR * 0.7f, hc.y + i * 4.f, 1.f); }
+        g.setColour (juce::Colours::black.withAlpha (0.8f)); g.drawEllipse (hc.x - L.headR, hc.y - L.headR, L.headR * 2, L.headR * 2, 1.2f);
+        g.setColour (juce::Colour (0xffff4a38).withAlpha (0.9f)); g.drawEllipse (xy.x - 3.f, xy.y - 3.f, 6.f, 6.f, 1.6f);   // the exact aim point
+    }
+};
 } // namespace altui

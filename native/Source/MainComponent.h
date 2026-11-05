@@ -5,11 +5,12 @@
 #include <juce_audio_formats/juce_audio_formats.h>
 #include <juce_data_structures/juce_data_structures.h>
 #include "Amp.h"
+#include <BinaryData.h>
 
 class MainComponent : public juce::Component, private juce::Timer, private juce::ChangeListener
 {
 public:
-    static constexpr int DesignW = 1040, DesignH = 940;
+    static constexpr int DesignW = 1040, DesignH = 950;
 
     MainComponent()
     {
@@ -46,28 +47,38 @@ public:
         if (k == juce::KeyPress::rightKey) { stepVoicing (+1); return true; }
         return false;
     }
-    void mouseDown (const juce::MouseEvent&) override { grabKeyboardFocus(); }
+    void mouseDown (const juce::MouseEvent& e) override
+    {
+        grabKeyboardFocus();
+        if (! tunerOpen && ampBox.contains (e.getPosition()) && ! plate.contains (e.getPosition())) setCabinetView (true);
+    }
+    juce::MouseCursor getMouseCursor() override
+    {
+        const auto p = getMouseXYRelative();
+        return (! tunerOpen && ampBox.contains (p) && ! plate.contains (p)) ? juce::MouseCursor::PointingHandCursor : juce::MouseCursor::NormalCursor;
+    }
+    void setCabinetView (bool on)
+    {
+        cabView.setVisible (on); if (on) cabView.toFront (false);
+        cabView.setState (P.cab, P.micType, P.mic, P.micDist); grabKeyboardFocus();
+    }
 
+    // the signature font (Sacramento, SIL Open Font License) is built into the app
     static juce::Font scriptFont (float h)
     {
-        static juce::String name; static bool done = false;
-        if (! done)
-        {
-            done = true; const auto all = juce::Font::findAllTypefaceNames();
-            for (auto* c : { "Segoe Script", "Ink Free", "Lucida Handwriting", "Brush Script MT", "Segoe Print", "Mistral" }) if (all.contains (c)) { name = c; break; }
-        }
-        if (name.isNotEmpty()) return juce::Font (juce::FontOptions (name, h, juce::Font::plain));
-        return juce::Font (juce::FontOptions (h, juce::Font::bold | juce::Font::italic));
+        static juce::Typeface::Ptr tf = juce::Typeface::createSystemTypefaceFor (BinaryData::SacramentoRegular_ttf, (size_t) BinaryData::SacramentoRegular_ttfSize);
+        return juce::Font (juce::FontOptions (tf).withHeight (h));
     }
 
     void paint (juce::Graphics& g) override
     {
         g.fillAll (altui::cBg);
         // header
-        g.setGradientFill (juce::ColourGradient (juce::Colour (0xff25201a), 0, 0, juce::Colour (0xff0e0c0a), 0, 46, false)); g.fillRect (0, 0, getWidth(), 46);
-        g.setColour (juce::Colour (0xff4a3a24)); g.fillRect (0, 45, getWidth(), 1);
-        g.setColour (juce::Colour (0xffffc866)); g.setFont (scriptFont (27.f));
-        g.drawText (juce::String::fromUTF8 ("Ariel\xE2\x80\x99s Signature"), 16, 4, 300, 38, juce::Justification::centredLeft);
+        g.setGradientFill (juce::ColourGradient (juce::Colour (0xff25201a), 0, 0, juce::Colour (0xff0e0c0a), 0, 54, false)); g.fillRect (0, 0, getWidth(), 54);
+        g.setColour (juce::Colour (0xff4a3a24)); g.fillRect (0, 53, getWidth(), 1);
+        { const auto f = scriptFont (50.f); const juce::String t = juce::String::fromUTF8 ("Ariel Gragnani\xE2\x80\x99s Amp Rack");
+          g.setColour (juce::Colours::black.withAlpha (0.6f)); g.setFont (f); g.drawText (t, 18, 5, 360, 46, juce::Justification::centredLeft);
+          g.setColour (juce::Colour (0xffffc866)); g.drawText (t, 16, 3, 360, 46, juce::Justification::centredLeft); }
 
         // amp: covered cabinet (tint follows the voicing) with a dark control plate
         altui::fillTweed (g, ampBox.toFloat(), 10.f, voicing < 0 ? 3 : voicing);
@@ -77,6 +88,15 @@ public:
           g.setColour (juce::Colour (0x66ff2a1a)); g.fillEllipse (jx - 11, jy - 11, 22, 22);
           g.setGradientFill (juce::ColourGradient (juce::Colour (0xffff7766), jx - 3, jy - 3, juce::Colour (0xffc01408), jx + 4, jy + 4, true)); g.fillEllipse (jx - 6, jy - 6, 12, 12);
           g.setColour (juce::Colour (0xff9a9a9a)); g.drawEllipse (jx - 8, jy - 8, 16, 16, 2.f); g.setColour (juce::Colours::black); g.drawEllipse (jx - 6, jy - 6, 12, 12, 1.f); }
+
+        // signature, slightly tilted, on the plate
+        { g.saveState(); const float cx = (float) plate.getCentreX() - 90.f, cy = (float) plate.getBottom() - 30.f;
+          g.addTransform (juce::AffineTransform::rotation (-0.075f, cx, cy));
+          g.setFont (scriptFont (34.f)); g.setColour (juce::Colours::black.withAlpha (0.6f)); g.drawText ("by Ariel Gragnani", (int) cx - 160 + 1, (int) cy - 22 + 2, 320, 44, juce::Justification::centred);
+          g.setColour (juce::Colour (0xfff0e4c4)); g.drawText ("by Ariel Gragnani", (int) cx - 160, (int) cy - 22, 320, 44, juce::Justification::centred);
+          g.restoreState(); }
+        g.setColour (juce::Colour (0x88f0e4c4)); g.setFont (juce::Font (juce::FontOptions (11.f)));
+        g.drawText ("click the tweed for the cabinet and microphone", ampBox.getX(), ampBox.getBottom() - 19, ampBox.getWidth(), 16, juce::Justification::centred);
 
         // other panels
         for (auto r : { noiseBox, recBox })
@@ -93,29 +113,28 @@ public:
     void resized() override
     {
         auto r = getLocalBounds();
-        auto top = r.removeFromTop (46).reduced (10, 0); top.removeFromLeft (280);
-        audioBtn.setBounds (top.removeFromLeft (100).reduced (0, 9)); top.removeFromLeft (6);
-        driverBox.setBounds (top.removeFromLeft (170).reduced (0, 9)); top.removeFromLeft (6);
-        bufferBox.setBounds (top.removeFromLeft (96).reduced (0, 9)); top.removeFromLeft (6);
-        chanBox.setBounds (top.removeFromLeft (100).reduced (0, 9)); top.removeFromLeft (6);
-        gainLbl.setBounds (top.removeFromLeft (28)); gainSl.setBounds (top.removeFromLeft (56)); top.removeFromLeft (6);
-        meterIn.setBounds (top.removeFromLeft (52).reduced (0, 17)); top.removeFromLeft (4); meterOut.setBounds (top.removeFromLeft (52).reduced (0, 17));
+        auto top = r.removeFromTop (54).reduced (10, 0); top.removeFromLeft (370);
+        audioBtn.setBounds (top.removeFromLeft (84).reduced (0, 13)); top.removeFromLeft (6);
+        driverBox.setBounds (top.removeFromLeft (130).reduced (0, 13)); top.removeFromLeft (6);
+        bufferBox.setBounds (top.removeFromLeft (76).reduced (0, 13)); top.removeFromLeft (6);
+        chanBox.setBounds (top.removeFromLeft (84).reduced (0, 13)); top.removeFromLeft (6);
+        gainLbl.setBounds (top.removeFromLeft (28)); gainSl.setBounds (top.removeFromLeft (50)); top.removeFromLeft (6);
+        meterIn.setBounds (top.removeFromLeft (46).reduced (0, 21)); top.removeFromLeft (4); meterOut.setBounds (top.removeFromLeft (46).reduced (0, 21));
         r.reduce (12, 0);
         latencyLbl.setBounds (r.removeFromTop (22).withTrimmedLeft (4)); r.removeFromTop (2);
 
         tabs.setBounds (r.removeFromTop (34).withTrimmedLeft (10).withTrimmedRight (10));
         ampBox = r.removeFromTop (208); r.removeFromTop (8);
-        plate = ampBox.reduced (26, 14);
+        plate = ampBox.reduced (34, 20);
         {
             auto a = plate.reduced (10, 6);
             auto row = a.removeFromTop (106);
-            const int kw = row.getWidth() / 10;
-            for (auto* k : { &kGain, &kVol, &kTreb, &kMid, &kBass, &kRev, &kTrs, &kTri, &kMic, &kOut }) k->setBounds (row.removeFromLeft (kw).reduced (2, 0));
+            const int kw = row.getWidth() / 9;
+            for (auto* k : { &kGain, &kVol, &kTreb, &kMid, &kBass, &kRev, &kTrs, &kTri, &kOut }) k->setBounds (row.removeFromLeft (kw).reduced (2, 0));
             a.removeFromTop (4);
             auto sw = a.removeFromTop (46).withTrimmedLeft (24);
             brightBtn.setBounds (sw.removeFromLeft (64)); sw.removeFromLeft (10);
-            cabOnBtn.setBounds (sw.removeFromLeft (64)); sw.removeFromLeft (24);
-            cabBox.setBounds (sw.removeFromLeft (150).withSizeKeepingCentre (150, 28));
+            cabOnBtn.setBounds (sw.removeFromLeft (64));
         }
 
         const int nh = noiseOpen ? 100 : 30;
@@ -148,6 +167,7 @@ public:
             stopBtn.setBounds (row.removeFromLeft (70)); row.removeFromLeft (12);
             timeLbl.setBounds (row.removeFromLeft (90)); row.removeFromLeft (8);
             tunerBtn.setBounds (row.removeFromRight (80)); row.removeFromRight (8);
+            mixBtn.setBounds (row.removeFromRight (100)); row.removeFromRight (8);
             statusLbl.setBounds (row);
             a.removeFromTop (6);
             row = a.removeFromTop (30);
@@ -164,6 +184,7 @@ public:
             const int sh = juce::jlimit (50, 72, (a.getHeight() - 6 * 3) / 4);
             for (auto& s : strips) { s->setBounds (a.removeFromTop (sh)); a.removeFromTop (6); }
         }
+        cabView.setBounds (tabs.getX(), tabs.getY(), tabs.getWidth(), ampBox.getBottom() - tabs.getY());
         tunerPanel.setBounds (tabs.getX(), tabs.getY(), tabs.getWidth(), noiseBox.getBottom() - tabs.getY());
         repaint();
     }
@@ -188,7 +209,7 @@ private:
         kGain.s.setValue (q.gain); kVol.s.setValue (q.vol); kTreb.s.setValue (q.treb); kMid.s.setValue (q.mid); kBass.s.setValue (q.bass);
         kRev.s.setValue (q.rev); kTrs.s.setValue (q.trs); kTri.s.setValue (q.tri);
         P.bright = q.bright; brightBtn.setToggleState (q.bright, juce::dontSendNotification);
-        cabBox.setSelectedId (q.cab + 1, juce::dontSendNotification); P.cab = q.cab; kMic.s.setValue (q.mic); P.mic = q.mic;
+        P.cab = q.cab; P.mic = q.mic; cabView.setState (P.cab, P.micType, P.mic, P.micDist);
         loading = false; voicing = i; tabs.setSelected (i); repaint (ampBox); pushParams();
     }
     void stepVoicing (int d)
@@ -219,8 +240,7 @@ private:
     altui::VoicingTabs tabs;
     altui::Knob kGain { "GAIN", 0, 10, 5, 1 }, kVol { "VOLUME", 0, 10, 4, 1 }, kTreb { "TREBLE", 0, 10, 6, 1 }, kMid { "MIDDLE", 0, 10, 4, 1 }, kBass { "BASS", 0, 10, 4, 1 },
                 kRev { "REVERB", 0, 10, 0, 1 }, kTrs { "SPEED", 0, 10, 5, 1 }, kTri { "DEPTH", 0, 10, 0, 1 }, kOut { "OUTPUT", 0, 10, 6, 1 };
-    altui::ToggleSwitch brightBtn { "Bright" }, cabOnBtn { "Cabinet" }; juce::ComboBox cabBox;
-    altui::Knob kMic { "MIC", 0, 10, 5, 1 };
+    altui::ToggleSwitch brightBtn { "Bright" }, cabOnBtn { "Cabinet" }; altui::CabinetView cabView; juce::TextButton mixBtn { "Export mix" };
     altui::FoldHeader noiseHeader;
     juce::TextButton noiseSampleBtn { "Save noise sample" }, tunerBtn { "Tuner" };
     altui::TunerPanel tunerPanel;
@@ -268,8 +288,8 @@ private:
     void buildUi()
     {
         for (auto* c : std::initializer_list<juce::Component*> { &audioBtn, &driverBox, &bufferBox, &chanBox, &gainLbl, &gainSl, &meterIn, &meterOut, &latencyLbl, &tabs,
-                                                                  &kGain, &kVol, &kTreb, &kMid, &kBass, &kRev, &kTrs, &kTri, &kMic, &kOut,
-                                                                  &brightBtn, &cabOnBtn, &cabBox, &noiseHeader, &humBtn, &humHzBox, &humAmtLbl, &humAmtSl, &humStatus, &gateBtn, &gateLbl, &gateSl,
+                                                                  &kGain, &kVol, &kTreb, &kMid, &kBass, &kRev, &kTrs, &kTri, &kOut, &mixBtn,
+                                                                  &brightBtn, &cabOnBtn, &noiseHeader, &humBtn, &humHzBox, &humAmtLbl, &humAmtSl, &humStatus, &gateBtn, &gateLbl, &gateSl,
                                                                   &learnBtn, &learnStatus, &noiseSampleBtn, &tunerBtn, &board, &playBtn, &recBtn, &stopBtn, &metBtn, &countBtn, &tapBtn, &compAuto, &timeLbl, &statusLbl, &bpmLbl, &bpmSl,
                                                                   &clickLbl, &clickSl, &compLbl, &compSl, &beatsBox })
             addAndMakeVisible (c);
@@ -309,14 +329,17 @@ private:
 
         // amp knobs
         auto bindKnob = [this] (altui::Knob& k, double& dst) { k.s.onValueChange = [this, &k, &dst] { dst = k.s.getValue(); markCustom(); if (! loading) pushParams(); }; };
-        bindKnob (kGain, P.gain); bindKnob (kVol, P.vol); bindKnob (kTreb, P.treb); bindKnob (kMid, P.mid); bindKnob (kBass, P.bass); bindKnob (kRev, P.rev); bindKnob (kTrs, P.trs); bindKnob (kTri, P.tri); bindKnob (kMic, P.mic); bindKnob (kOut, P.outVol);
+        bindKnob (kGain, P.gain); bindKnob (kVol, P.vol); bindKnob (kTreb, P.treb); bindKnob (kMid, P.mid); bindKnob (kBass, P.bass); bindKnob (kRev, P.rev); bindKnob (kTrs, P.trs); bindKnob (kTri, P.tri); bindKnob (kOut, P.outVol);
         P.gain = 5; P.vol = 4; P.treb = 6; P.mid = 4; P.bass = 4; P.rev = 0; P.trs = 5; P.tri = 0; P.outVol = 6;
-        for (auto* k : { &kGain, &kVol, &kTreb, &kMid, &kBass, &kRev, &kTrs, &kTri, &kMic, &kOut }) k->setInk (juce::Colour (0xffe9e2cf), altui::cAmber);
+        for (auto* k : { &kGain, &kVol, &kTreb, &kMid, &kBass, &kRev, &kTrs, &kTri, &kOut }) k->setInk (juce::Colour (0xffe9e2cf), altui::cAmber);
 
         toggle (brightBtn, true, [this] { P.bright = brightBtn.getToggleState(); });
         toggle (cabOnBtn, true, [this] { P.cabOn = cabOnBtn.getToggleState(); });
-        cabBox.addItem ("2x12 open back", 1); cabBox.addItem ("1x12 open back", 2); cabBox.setSelectedId (1, juce::dontSendNotification);
-        cabBox.onChange = [this] { P.cab = cabBox.getSelectedId() - 1; markCustom(); if (! loading) pushParams(); };
+        addChildComponent (cabView);
+        cabView.onBack = [this] { setCabinetView (false); };
+        cabView.onChange = [this] (int cab, int mt, double pos, double dist)
+        { P.cab = cab; P.micType = mt; P.mic = pos; P.micDist = dist; markCustom(); if (! loading) pushParams(); };
+        mixBtn.onClick = [this] { exportMix(); };
 
         // noise control (collapsible)
         noiseHeader.text = "NOISE CONTROL"; noiseHeader.open = noiseOpen; noiseHeader.onToggle = [this] { noiseOpen = noiseHeader.open; resized(); };
@@ -473,6 +496,45 @@ private:
         });
     }
 
+    void exportMix()
+    {
+        std::vector<std::shared_ptr<alt::TrackData>> ds; bool solo = false;
+        for (auto& t : rig.tracks) solo = solo || t.solo.load();
+        std::vector<float> vl, vr; int64_t n = 0;
+        for (int i = 0; i < alt::NumTracks; ++i)
+        {
+            auto d = rig.tracks[(size_t) i].get(); auto& ts = rig.tracks[(size_t) i];
+            if (! d || ts.mute.load() || (solo && ! ts.solo.load())) continue;
+            const int len = (int) d->length(); if (len > n) { n = len; vl.resize ((size_t) n, 0.f); vr.resize ((size_t) n, 0.f); }
+            const float g = ts.vol.load(), pn = ts.pan.load(), gl = pn > 0 ? 1.f - pn : 1.f, gr = pn < 0 ? 1.f + pn : 1.f;
+            for (int k = 0; k < len; ++k) { vl[(size_t) k] += d->wl[(size_t) k] * g * gl; vr[(size_t) k] += d->wr[(size_t) k] * g * gr; }
+        }
+        if (n == 0) { statusLbl.setText ("Nothing to export - record a track first", juce::dontSendNotification); return; }
+        float pk = 0.f; for (int64_t k = 0; k < n; ++k) pk = std::max ({ pk, std::fabs (vl[(size_t) k]), std::fabs (vr[(size_t) k]) });
+        if (pk > 0.98f) { const float s = 0.98f / pk; for (auto& x : vl) x *= s; for (auto& x : vr) x *= s; }
+        auto data = std::make_shared<std::pair<std::vector<float>, std::vector<float>>> (std::move (vl), std::move (vr));
+        chooser = std::make_unique<juce::FileChooser> ("Save mix", juce::File::getSpecialLocation (juce::File::userMusicDirectory).getChildFile ("Mix.wav"), "*.wav");
+        chooser->launchAsync (juce::FileBrowserComponent::saveMode | juce::FileBrowserComponent::canSelectFiles | juce::FileBrowserComponent::warnAboutOverwriting,
+                              [this, data, n] (const juce::FileChooser& fc)
+        {
+            auto f = fc.getResult(); if (f == juce::File()) return;
+            f = f.withFileExtension ("wav"); f.deleteFile();
+            std::unique_ptr<juce::FileOutputStream> os (f.createOutputStream()); bool ok = false;
+            if (os != nullptr)
+            {
+                juce::WavAudioFormat wav;
+                std::unique_ptr<juce::AudioFormatWriter> w (wav.createWriterFor (os.get(), rig.sampleRate(), 2u, 24, {}, 0));
+                if (w != nullptr)
+                {
+                    os.release();
+                    juce::AudioBuffer<float> buf (2, (int) n); buf.copyFrom (0, 0, data->first.data(), (int) n); buf.copyFrom (1, 0, data->second.data(), (int) n);
+                    ok = w->writeFromAudioSampleBuffer (buf, 0, (int) n);
+                }
+            }
+            statusLbl.setText (ok ? "Saved " + f.getFileName() : "Could not save the file", juce::dontSendNotification);
+        });
+    }
+
     void setTuner (bool on)
     {
         tunerOpen = on; tunerPanel.setVisible (on); tunerPanel.toFront (false);
@@ -579,7 +641,7 @@ private:
         if (auto xml = dm.createStateXml()) s->setValue ("audioDevice", xml.get());
         s->setValue ("gainK", P.gain); s->setValue ("vol", P.vol); s->setValue ("treb", P.treb); s->setValue ("mid", P.mid); s->setValue ("bass", P.bass); s->setValue ("rev", P.rev);
         s->setValue ("trs", P.trs); s->setValue ("tri", P.tri); s->setValue ("outVol", P.outVol); s->setValue ("bright", P.bright); s->setValue ("cabOn", P.cabOn);
-        s->setValue ("cab", P.cab); s->setValue ("mic", P.mic); s->setValue ("humOn", P.humOn); s->setValue ("humHz", P.humHz); s->setValue ("humAmt", P.humAmt);
+        s->setValue ("cab", P.cab); s->setValue ("mic", P.mic); s->setValue ("micType", P.micType); s->setValue ("micDist", P.micDist); s->setValue ("humOn", P.humOn); s->setValue ("humHz", P.humHz); s->setValue ("humAmt", P.humAmt);
         s->setValue ("gateOn", P.gateOn); s->setValue ("gateThr", P.gateThr); s->setValue ("gain", gainSl.getValue()); s->setValue ("chan", chanBox.getSelectedId());
         s->setValue ("bpm", bpmSl.getValue()); s->setValue ("comp", compSl.getValue()); s->setValue ("click", clickSl.getValue());
         s->setValue ("voicing2", voicing); s->setValue ("noiseOpen2", noiseOpen);
@@ -597,7 +659,7 @@ private:
         kGain.s.setValue (d ("gainK", 5)); kVol.s.setValue (d ("vol", 4)); kTreb.s.setValue (d ("treb", 6)); kMid.s.setValue (d ("mid", 4)); kBass.s.setValue (d ("bass", 4)); kRev.s.setValue (d ("rev", 0));
         kTrs.s.setValue (d ("trs", 5)); kTri.s.setValue (d ("tri", 0)); kOut.s.setValue (d ("outVol", 6));
         brightBtn.setToggleState (s->getBoolValue ("bright", true), juce::dontSendNotification); cabOnBtn.setToggleState (s->getBoolValue ("cabOn", true), juce::dontSendNotification);
-        cabBox.setSelectedId (s->getIntValue ("cab", 0) + 1, juce::dontSendNotification); kMic.s.setValue (d ("mic", 5));
+        P.cab = juce::jlimit (0, 2, s->getIntValue ("cab", 1)); P.mic = d ("mic", 5); P.micType = juce::jlimit (0, 4, s->getIntValue ("micType", 0)); P.micDist = d ("micDist", 3); cabView.setState (P.cab, P.micType, P.mic, P.micDist);
         humBtn.setToggleState (s->getBoolValue ("humOn", true), juce::dontSendNotification); humHzBox.setSelectedId (s->getIntValue ("humHz", 60) == 50 ? 2 : 1, juce::dontSendNotification);
         humAmtSl.setValue (d ("humAmt", 10)); gateBtn.setToggleState (s->getBoolValue ("gateOn", true), juce::dontSendNotification); gateSl.setValue (d ("gateThr", -58));
         gainSl.setValue (d ("gain", 0)); bpmSl.setValue (d ("bpm", 100)); compSl.setValue (d ("comp", 0)); clickSl.setValue (d ("click", 0.5));
@@ -609,7 +671,7 @@ private:
         noiseOpen = s->getBoolValue ("noiseOpen2", false); noiseHeader.open = noiseOpen;
         rebuildChannels(); if (s->getIntValue ("chan", 0) > 0 && s->getIntValue ("chan", 0) <= chanBox.getNumItems() + 1) chanBox.setSelectedId (s->getIntValue ("chan", 1), juce::dontSendNotification);
         P.bright = brightBtn.getToggleState(); P.cabOn = cabOnBtn.getToggleState(); P.humOn = humBtn.getToggleState(); P.gateOn = gateBtn.getToggleState();
-        P.cab = cabBox.getSelectedId() - 1; P.humHz = humHzBox.getSelectedId() == 2 ? 50 : 60;
+        P.humHz = humHzBox.getSelectedId() == 2 ? 50 : 60;
         pedalsChanged();
         voicing = s->getIntValue ("voicing2", -1); if (voicing < 0 || voicing >= NumPresets) voicing = -1; tabs.setSelected (voicing);
         loading = false;

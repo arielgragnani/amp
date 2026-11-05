@@ -19,6 +19,7 @@ else()
 endif()
 
 juce_add_gui_app(AltGuitarAmpRack PRODUCT_NAME "Ariel Signature Amp Rack" COMPANY_NAME "Ariel" VERSION 1.1.0)
+juce_add_binary_data(AltFonts SOURCES Fonts/Sacramento-Regular.ttf)
 target_sources(AltGuitarAmpRack PRIVATE Source/Main.cpp)
 target_compile_definitions(AltGuitarAmpRack PRIVATE
   JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_REPORT_APP_USAGE=0 JUCE_DISPLAY_SPLASH_SCREEN=0
@@ -32,7 +33,7 @@ if(ALT_ASIO)
   target_include_directories(AltGuitarAmpRack PRIVATE ${ASIO_SDK_DIR}/common ${ASIO_SDK_DIR}/host ${ASIO_SDK_DIR}/host/pc)
 endif()
 target_link_libraries(AltGuitarAmpRack PRIVATE
-  juce::juce_gui_basics juce::juce_audio_utils juce::juce_audio_devices juce::juce_audio_formats juce::juce_data_structures
+  AltFonts juce::juce_gui_basics juce::juce_audio_utils juce::juce_audio_devices juce::juce_audio_formats juce::juce_data_structures
   juce::juce_recommended_config_flags juce::juce_recommended_warning_flags)
 
 option(ALT_TESTS "Build the headless test programs" OFF)

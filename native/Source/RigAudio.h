@@ -31,7 +31,7 @@ struct TrackData
 
 struct TrackState
 {
-    std::atomic<float> vol { 1.f };
+    std::atomic<float> vol { 1.f }, pan { 0.f };
     std::atomic<bool> mute { false }, solo { false }, reamp { false };
     juce::SpinLock lock;
     std::shared_ptr<const TrackData> data;
@@ -312,7 +312,7 @@ private:
                 if (tp >= 0)
                     for (int t = 0; t < NumTracks; ++t)
                         if (useTd[t] && ! (st == (int) Transport::Play && tracks[(size_t) t].reamp.load()) && tp < td[t]->length() && audible (t))
-                        { const float g = tracks[(size_t) t].vol.load(); l += td[t]->wl[(size_t) tp] * g; r += td[t]->wr[(size_t) tp] * g; }
+                        { const float g = tracks[(size_t) t].vol.load(), pn = tracks[(size_t) t].pan.load(), gl = pn > 0 ? 1.f - pn : 1.f, gr = pn < 0 ? 1.f + pn : 1.f; l += td[t]->wl[(size_t) tp] * g * gl; r += td[t]->wr[(size_t) tp] * g * gr; }
                 // metronome
                 const bool inCount = tp < 0;
                 if ((metOn.load() || inCount) && (((tp % beatLen) + beatLen) % beatLen) == 0)
