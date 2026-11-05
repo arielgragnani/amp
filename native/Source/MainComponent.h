@@ -118,22 +118,23 @@ public:
             cabBox.setBounds (sw.removeFromLeft (150).withSizeKeepingCentre (150, 28));
         }
 
-        const int nh = noiseOpen ? 92 : 30;
+        const int nh = noiseOpen ? 100 : 30;
         noiseBox = r.removeFromTop (nh); r.removeFromTop (8);
         noiseHeader.setBounds (noiseBox.getX() + 6, noiseBox.getY() + 2, 260, 26); noiseHeader.open = noiseOpen;
         for (auto* c : std::initializer_list<juce::Component*> { &humBtn, &humHzBox, &humAmtLbl, &humAmtSl, &humStatus, &gateBtn, &gateLbl, &gateSl, &learnBtn, &learnStatus, &noiseSampleBtn }) c->setVisible (noiseOpen);
         if (noiseOpen)
         {
-            auto a = noiseBox.reduced (12, 0); a.removeFromTop (34); a = a.withHeight (40);
-            humBtn.setBounds (a.removeFromLeft (100)); a.removeFromLeft (6);
-            humHzBox.setBounds (a.removeFromLeft (80)); a.removeFromLeft (10);
-            humAmtLbl.setBounds (a.removeFromLeft (58)); humAmtSl.setBounds (a.removeFromLeft (110)); a.removeFromLeft (10);
-            humStatus.setBounds (a.removeFromLeft (170)); a.removeFromLeft (14);
-            gateBtn.setBounds (a.removeFromLeft (90)); a.removeFromLeft (8);
-            gateLbl.setBounds (a.removeFromLeft (30)); gateSl.setBounds (a.removeFromLeft (110)); a.removeFromLeft (8);
-            learnBtn.setBounds (a.removeFromLeft (90)); a.removeFromLeft (8);
-            learnStatus.setBounds (a.removeFromLeft (150)); a.removeFromLeft (6);
-            noiseSampleBtn.setBounds (a.removeFromLeft (150));
+            auto a = noiseBox.reduced (12, 0); a.removeFromTop (30);
+            auto r1 = a.removeFromTop (34).reduced (0, 2), r2 = a.removeFromTop (32).reduced (0, 2);
+            humBtn.setBounds (r1.removeFromLeft (100)); r1.removeFromLeft (6);
+            humHzBox.setBounds (r1.removeFromLeft (80)); r1.removeFromLeft (10);
+            humAmtLbl.setBounds (r1.removeFromLeft (58)); humAmtSl.setBounds (r1.removeFromLeft (130)); r1.removeFromLeft (30);
+            gateBtn.setBounds (r1.removeFromLeft (90)); r1.removeFromLeft (8);
+            gateLbl.setBounds (r1.removeFromLeft (30)); gateSl.setBounds (r1.removeFromLeft (150)); r1.removeFromLeft (20);
+            learnBtn.setBounds (r1.removeFromLeft (90));
+            humStatus.setBounds (r2.removeFromLeft (250)); r2.removeFromLeft (10);
+            noiseSampleBtn.setBounds (r2.removeFromRight (170)); r2.removeFromRight (10);
+            learnStatus.setBounds (r2);
         }
 
         board.setBounds (r.removeFromTop (160)); r.removeFromTop (8);
