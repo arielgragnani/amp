@@ -415,6 +415,12 @@ static const MicVoicing MICS[5] = { { 5500, 0.3, 1.1, 140, 0.0, 0.9 },    // dyn
                                     { 650, -2.0, 0.9, 4000, 3.0, 1.0 },   // dynamic, 421-style: scooped mids
                                     { 120, 2.5, 0.8, 8000, 1.5, 0.7 } };  // tube condenser: big and smooth
 
+// Everything after the effects return, one copy per channel: power stage with sag, then the speaker cabinet and microphone
+struct Back
+{
+    Os4 os; Bq tP, tPh, cHp, cRes, cPk, cDip, cL1, cL2, cM1, cM2, cProx; double sagEnv = 0;
+};
+
 class Engine
 {
 public:
@@ -429,7 +435,7 @@ public:
     void prepare (double sampleRate)
     {
         sr = sampleRate; s4 = sr * 4;
-        hb = HB(); osD = Os4(); osD.init (&hb); osA = Os4(); osA.init (&hb);
+        hb = HB(); osD = Os4(); osD.init (&hb); osA = Os4(); osA.init (&hb); for (auto& b : bk) { b = Back(); b.os.init (&hb); } rLive = false;
         inHp.set (BqType::HP, 68, 0.5412, 0, sr); inHp2.set (BqType::HP, 68, 1.3066, 0, sr); detHp.set (BqType::HP, 120, 0.707, 0, sr);
         std::fill (std::begin (hc), std::end (hc), 1.0); std::fill (std::begin (hs), std::end (hs), 0.0);
         std::fill (std::begin (ha), std::end (ha), 0.0); std::fill (std::begin (hw), std::end (hw), 0.0);
@@ -440,7 +446,7 @@ public:
         gRel = std::exp (-1 / (0.03 * sr)); gHoldN = (int) std::lround (0.06 * sr);
         aOpen = 1 - std::exp (-1 / (0.00025 * sr)); aClose = 1 - std::exp (-1 / (0.07 * sr));
         std::fill (std::begin (mc), std::end (mc), 1.0);
-        sagEnv = 0; sagKa = 1 - std::exp (-1 / (0.02 * sr * 4)); sagKr = 1 - std::exp (-1 / (0.16 * sr * 4));
+        sagKa = 1 - std::exp (-1 / (0.02 * sr * 4)); sagKr = 1 - std::exp (-1 / (0.16 * sr * 4));
         trPh = 0;
         spA.init (sr, 0.0343, 32, -0.60, 0.88, 3300, 0.8, 0.6, 0.0); spB.init (sr, 0.0419, 32, -0.56, 0.88, 3036, 1.1, 0.6, 2.0);
         spAct = 0; spLo = 0; spHk = 1 - std::exp (-TAU * 190 / sr); spTail = 0;
@@ -448,8 +454,7 @@ public:
         for (int m = 0; m < 4; ++m) tsMkM[m] = FEN::tsMk * std::sqrt (tsRefs[0] / tsRefs[m]);
         tsRef = tsRefs[0]; am = &MODELS[0]; modelIdx = 0;
         std::fill (std::begin (tsZ), std::end (tsZ), 0.0); brZ = 0;
-        aHp[0] = aHp[1] = aLp[0] = aLp[1] = tP = tPh = Bq();
-        cHp = cRes = cPk = cDip = cL1 = cL2 = cM1 = cM2 = cProx = Bq();
+        aHp[0] = aHp[1] = aLp[0] = aLp[1] = Bq();
         pedC.init (sr); pedD.init (&hb, sr); pedL.init (sr); pedR.init (sr); pedP.init (sr, 0.55, 1.5, 0.08, 3000, 4.3); pedRm.init (sr, 0.2, 3.0, 0.05, 2200, 3.6); pedCh.init (sr); dlyLive = rvbLive = choLive = false;
         fade = fadeOld = 1; haveP = false; cabIdx = -1;
         std::fill (cur, cur + NP, 0.0); std::fill (old, old + NP, 0.0); std::fill (tgt, tgt + NP, 0.0);
@@ -477,11 +482,14 @@ public:
     }
 
     double sampleRate() const { return sr; }
+#ifdef ALT_DBG
+    double dbgSum = 0; long long dbgN = 0;
+#endif
 
 private:
-    enum { GateThr, GateOn, AT, AM, AL, AV, ABr, AG1, AG2, APg, ATrim, ATrR, ATrD, SpMix, ASag, CabOn, CabHP, CabRF, CabRG, CabPF, CabPG, CabDF, CabDG, CabLP, Vol, HumAmt, AGn, CoOn, CoLv, PdOn, PdLv, DlOn, DlTime, DlFb, DlMix, RvOn, RvMix, ChOn, ChRate, ChDepth, ChMix, CabM1F, CabM1G, CabM2F, CabM2G, CabProx, TpF, NP };
+    enum { GateThr, GateOn, AT, AM, AL, AV, ABr, AG1, AG2, APg, ATrim, ATrR, ATrD, SpMix, ASag, CabOn, CabHP, CabRF, CabRG, CabPF, CabPG, CabDF, CabDG, CabLP, Vol, HumAmt, AGn, CoOn, CoLv, PdOn, PdLv, DlOn, DlTime, DlFb, DlMix, RvOn, RvMix, ChOn, ChRate, ChDepth, ChMix, CabM1F, CabM1G, CabM2F, CabM2G, CabProx, TpF, LoopG, NP };
     double sr = 48000, s4 = 192000;
-    HB hb; Os4 osD, osA;
+    HB hb; Os4 osD, osA; Back bk[2]; bool rLive = false; double bu[128 * 4], bl[128], br[128];
     double tgt[NP], cur[NP], old[NP]; bool haveP = false; int cabIdx = -1; double fade = 1, fadeOld = 1;
     double humNom = 60, humF0 = 60; int humNomSet = 0;
     // input filter + hum canceller
@@ -493,13 +501,13 @@ private:
     double gEnv = 0, gG = 1, gRel = 0, aOpen = 0, aClose = 0, lMax = 0; bool gOpen = false; int gHold = 0, gHoldN = 0, gSentv = -1, learn = 0, lLen = 0;
     double mc[8], ms[8] = {}, mrc[8] = {}, mrs[8] = {}, mxr[8] = {}, mxi[8] = {};
     // amp
-    Bq aHp[2], aLp[2], tP, tPh; double tsC[14] = {}, tsZ[3] = {}, brZ = 0, brC[3] = {}, tsRef = 1, tsCmp = 1, tsRefs[4] = { 1, 1, 1, 1 }, tsMkM[4] = { 12, 12, 12, 12 };
+    Bq aHp[2], aLp[2]; double tsC[14] = {}, tsZ[3] = {}, brZ = 0, brC[3] = {}, tsRef = 1, tsCmp = 1, tsRefs[4] = { 1, 1, 1, 1 }, tsMkM[4] = { 12, 12, 12, 12 };
     const AmpModel* am = &MODELS[0]; int modelIdx = 0;
-    double sagEnv = 0, sagKa = 0, sagKr = 0, trPh = 0;
+    double sagKa = 0, sagKr = 0, trPh = 0;
     // spring
     Spring spA, spB; double spAct = 0, spLo = 0, spHk = 0, spTail = 0;
     // cab
-    Bq cHp, cRes, cPk, cDip, cL1, cL2, cM1, cM2, cProx; double mq1 = 1, mq2 = 1;
+    double mq1 = 1, mq2 = 1;
     // work buffers
     double b1[128], u[128 * 4], tg[128];
     // pedals
@@ -541,6 +549,13 @@ private:
         t[HumAmt] = P.humOn ? clampd (P.humAmt, 0, 10) / 10 : 0;
         humNom = P.humHz == 50 ? 50 : 60;
         t[AGn] = dbl (gk > 8 ? (gk - 8) * 6.0 : 0.0);
+        {   // effects loop level: how hot the preamp output is depends on Gain, so the pedals get a send scaled to about the level of a guitar (rms 0.075 on the test riff) whatever the Gain setting
+            static const double lr[4][11] = { { 0.002, 0.016, 0.036, 0.056, 0.085, 0.128, 0.187, 0.264, 0.358, 0.527, 0.693 },
+                                              { 0.002, 0.022, 0.049, 0.076, 0.115, 0.170, 0.246, 0.341, 0.450, 0.632, 0.783 },
+                                              { 0.002, 0.139, 0.285, 0.397, 0.521, 0.642, 0.745, 0.824, 0.881, 0.933, 0.957 },
+                                              { 0.002, 0.008, 0.019, 0.029, 0.044, 0.068, 0.102, 0.153, 0.223, 0.372, 0.547 } };
+            const int g0 = std::min (9, (int) std::floor (gk)); const double fr = gk - g0, m = std::exp (std::log (lr[modelIdx][g0]) * (1 - fr) + std::log (lr[modelIdx][g0 + 1]) * fr);
+            t[LoopG] = std::min (30.0, 0.0754 / (m * am->h2)); }
         t[CoOn] = P.cmpOn ? 1 : 0; t[CoLv] = dbl ((clampd (P.cmpLevel, 0, 10) - 5) * 2.4);
         { const double su = clampd (P.cmpSustain, 0, 10); coThr = -12 - su * 2.4; coRatio = 2.5 + su * 0.55; coMake = 0.8 * std::max (0.0, -12 - coThr) * (1 - 1 / coRatio); coAtt = P.cmpAttack; coRel = P.cmpRelease; }
         t[PdOn] = P.drvOn ? 1 : 0; t[PdLv] = dbl ((clampd (P.drvLevel, 0, 10) - 5) * 2.4);
@@ -566,19 +581,22 @@ private:
         tsCmp = std::pow (tsRef / tsPow (tsC), 0.25);
         { const double v = c[AV], tau = (1 - v) * am->rv * am->bc * c[ABr], cc = 2 * s4, d0 = 1 + v * cc * tau;
           brC[0] = v * (1 + cc * tau) / d0; brC[1] = v * (1 - cc * tau) / d0; brC[2] = (1 - v * cc * tau) / d0; }
-        tP.set (BqType::LP, c[TpF], 0.707, 0, s4); tPh.set (BqType::HP, 38, 0.707, 0, s4);
-        cHp.set (BqType::HP, c[CabHP], 0.707, 0, sr); cRes.set (BqType::Peak, c[CabRF], 1, c[CabRG], sr);
-        cPk.set (BqType::Peak, c[CabPF], 0.9, c[CabPG], sr); cDip.set (BqType::Peak, c[CabDF], 1.4, c[CabDG], sr);
-        cM1.set (BqType::Peak, c[CabM1F], mq1, c[CabM1G], sr); cM2.set (BqType::Peak, c[CabM2F], mq2, c[CabM2G], sr); cProx.set (BqType::LowShelf, 160, 0.7, c[CabProx], sr);
-        cL1.set (BqType::LP, c[CabLP], 0.5412, 0, sr); cL2.set (BqType::LP, c[CabLP], 1.3066, 0, sr);
+        for (auto& b : bk)
+        {
+            b.tP.set (BqType::LP, c[TpF], 0.707, 0, s4); b.tPh.set (BqType::HP, 38, 0.707, 0, s4);
+            b.cHp.set (BqType::HP, c[CabHP], 0.707, 0, sr); b.cRes.set (BqType::Peak, c[CabRF], 1, c[CabRG], sr);
+            b.cPk.set (BqType::Peak, c[CabPF], 0.9, c[CabPG], sr); b.cDip.set (BqType::Peak, c[CabDF], 1.4, c[CabDG], sr);
+            b.cM1.set (BqType::Peak, c[CabM1F], mq1, c[CabM1G], sr); b.cM2.set (BqType::Peak, c[CabM2F], mq2, c[CabM2G], sr); b.cProx.set (BqType::LowShelf, 160, 0.7, c[CabProx], sr);
+            b.cL1.set (BqType::LP, c[CabLP], 0.5412, 0, sr); b.cL2.set (BqType::LP, c[CabLP], 1.3066, 0, sr);
+        }
     }
     void flushAll()
     {
         inHp.flush(); inHp2.flush(); detHp.flush();
         for (int i = 0; i < 2; ++i) { aHp[i].flush(); aLp[i].flush(); }
-        tP.flush(); tPh.flush(); flushArr (tsZ); flushv (brZ); spA.flush(); spB.flush();
-        flushv (sagEnv); flushv (spLo);
-        cHp.flush(); cRes.flush(); cPk.flush(); cDip.flush(); cL1.flush(); cL2.flush(); cM1.flush(); cM2.flush(); cProx.flush();
+        flushArr (tsZ); flushv (brZ); spA.flush(); spB.flush();
+        flushv (spLo);
+        for (auto& b : bk) { b.tP.flush(); b.tPh.flush(); b.cHp.flush(); b.cRes.flush(); b.cPk.flush(); b.cDip.flush(); b.cL1.flush(); b.cL2.flush(); b.cM1.flush(); b.cM2.flush(); b.cProx.flush(); b.os.flush(); flushv (b.sagEnv); }
         osA.flush(); osD.flush(); flushv (gEnv);
         flushArr (ha); flushArr (hw);
         for (int k = 0; k < HK; ++k) { const double m = 1 / std::hypot (hc[k], hs[k]); hc[k] *= m; hs[k] *= m; }
@@ -707,21 +725,10 @@ private:
         }
         else pedD.flush();
         };
-        for (int pi = 0; pi < 2; ++pi) { if (preOrd[pi] == 0) doComp(); else doDrive(); }
 
-        // C: amp at 4x
+        // C: amp front end at 4x: first gain stage, tone stack, level pot with bright cap, second gain stage. Its output is the effects SEND.
         {
             const int n4 = 4 * n;
-            const double td0 = old[ATrD], td1 = cur[ATrD]; const bool trem = td0 > 1e-4 || td1 > 1e-4;
-            if (trem)
-            {
-                const double inc = cur[ATrR] / sr;
-                for (int i = 0; i < n; ++i)
-                {
-                    trPh += inc; if (trPh >= 1) trPh -= 1;
-                    tg[i] = 1 - (td0 + (td1 - td0) * (i + 1) * inv) * 0.5 * (1 + std::sin (TAU * trPh));
-                }
-            }
             osA.up (b1, n, u);
             const double g1 = cur[AG1] * cur[AGn] / am->h1, g2 = cur[AG2] / am->h2;
             stage (aHp[0], aLp[0], n4, g1, am->b1, am->h1);
@@ -735,32 +742,19 @@ private:
               for (int i = 0; i < n4; ++i) { const double xx = u[i], y = b0 * xx + z; z = bb1 * xx - a1 * y; u[i] = y; }
               brZ = z; }
             stage (aHp[1], aLp[1], n4, g2, am->b2, am->h2);
-            // power stage with supply sag
-            { const double H = am->hp, bp = am->bp, tbp = ft (bp), gp = cur[APg], trim = cur[ATrim], sagK = cur[ASag]; double env = sagEnv;
-              for (int i = 0; i < n4; ++i)
-              {
-                  double xx = u[i] * gp; if (trem) xx *= tg[i >> 2];
-                  const double Hs = H / (1 + sagK * env), y = Hs * (ft (xx / Hs + bp) - tbp);
-                  const double a = (y < 0 ? -y : y) / H; env += (a - env) * (a > env ? sagKa : sagKr);
-                  u[i] = y * trim;
-              }
-              sagEnv = env; }
-            for (int i = 0; i < n4; ++i) u[i] = tP.p (tPh.p (u[i]));
             osA.down (u, n, b1);
         }
 
-        // D: cabinet
-        const double cb0 = old[CabOn], cb1 = cur[CabOn];
-        if (cb0 > 1e-5 || cb1 > 1e-5)
-            for (int i = 0; i < n; ++i)
-            {
-                const double v = b1[i], w = cL2.p (cL1.p (cM2.p (cM1.p (cProx.p (cDip.p (cPk.p (cRes.p (cHp.p (v)))))))));
-                const double e = cb0 + (cb1 - cb0) * (i + 1) * inv;
-                b1[i] = v * (1 - e) + w * 1.6 * e;
-            }
+        // effects loop: the send is scaled to about guitar level (LoopG depends on the Gain setting) so the pedals behave the same at any Gain; the return scales it back
+#ifdef ALT_DBG
+        for (int i = 0; i < n; ++i) { dbgSum += b1[i] * b1[i]; ++dbgN; }
+#endif
+        const double lg0 = old[LoopG], lg1 = cur[LoopG];
+        for (int i = 0; i < n; ++i) b1[i] *= lg0 + (lg1 - lg0) * (i + 1) * inv;
+        for (int pi = 0; pi < 2; ++pi) { if (preOrd[pi] == 0) doComp(); else doDrive(); }
 
-        // E: spring reverb, volume, limiter
-        const double v0 = old[Vol], v1 = cur[Vol], sp0 = old[SpMix], sp1 = cur[SpMix];
+        // E: chorus, delay and reverb in the loop, then the return into the power stage and cabinet, volume, limiter
+        const double v0 = old[Vol], v1 = cur[Vol];
         const bool dlyAct = old[DlOn] > 1e-4 || cur[DlOn] > 1e-4, rvbAct = old[RvOn] > 1e-4 || cur[RvOn] > 1e-4;
         if (dlyAct && ! dlyLive) pedL.clear();
         if (rvbAct && ! rvbLive) pedR.clear();
@@ -814,9 +808,45 @@ private:
             }
             }
             }
-            const double vol = (v0 + (v1 - v0) * t) * (fadeOld + (fade - fadeOld) * t);
-            oL[i] = (float) softLimit (l * vol); oR[i] = (float) softLimit (r * vol);
+            const double lg = lg0 + (lg1 - lg0) * t; bl[i] = l / lg; br[i] = r / lg;
         }
+        // return: power stage and cabinet. The right channel only runs when a stereo effect is on (otherwise it equals the left)
+        const bool stereo = choAct || dlyAct || rvbAct;
+        if (stereo && ! rLive) bk[1] = bk[0];
+        rLive = stereo;
+        powerCab (bk[0], bl, n);
+        if (stereo) powerCab (bk[1], br, n); else for (int i = 0; i < n; ++i) br[i] = bl[i];
+        for (int i = 0; i < n; ++i)
+        {
+            const double t = (i + 1) * inv, vol = (v0 + (v1 - v0) * t) * (fadeOld + (fade - fadeOld) * t);
+            oL[i] = (float) softLimit (bl[i] * vol); oR[i] = (float) softLimit (br[i] * vol);
+        }
+    }
+
+    // power stage (with supply sag) at 4x, then the speaker cabinet and microphone, for one channel
+    void powerCab (Back& B, double* io, int n)
+    {
+        const int n4 = 4 * n; const double inv = 1.0 / n;
+        B.os.up (io, n, bu);
+        { const double Hp = am->hp, bp = am->bp, tbp = ft (bp), gp = cur[APg], trim = cur[ATrim], sagK = cur[ASag]; double env = B.sagEnv;
+          for (int i = 0; i < n4; ++i)
+          {
+              const double xx = bu[i] * gp;
+              const double Hs = Hp / (1 + sagK * env), y = Hs * (ft (xx / Hs + bp) - tbp);
+              const double a = (y < 0 ? -y : y) / Hp; env += (a - env) * (a > env ? sagKa : sagKr);
+              bu[i] = y * trim;
+          }
+          B.sagEnv = env; }
+        for (int i = 0; i < n4; ++i) bu[i] = B.tP.p (B.tPh.p (bu[i]));
+        B.os.down (bu, n, io);
+        const double cb0 = old[CabOn], cb1 = cur[CabOn];
+        if (cb0 > 1e-5 || cb1 > 1e-5)
+            for (int i = 0; i < n; ++i)
+            {
+                const double v = io[i], w = B.cL2.p (B.cL1.p (B.cM2.p (B.cM1.p (B.cProx.p (B.cDip.p (B.cPk.p (B.cRes.p (B.cHp.p (v)))))))));
+                const double e = cb0 + (cb1 - cb0) * (i + 1) * inv;
+                io[i] = v * (1 - e) + w * 1.6 * e;
+            }
     }
 
     // one preamp tube stage at 4x: coupling highpass, gain into the saturator, Miller lowpass

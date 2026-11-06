@@ -311,25 +311,28 @@ public:
     }
     std::array<Pedal*, 5> all() { return { &comp, &drive, &chorus, &delay, &reverb }; }      // by id
     std::array<Pedal*, 5> inOrder() { auto a = all(); std::array<Pedal*, 5> o; for (int i = 0; i < 5; ++i) o[(size_t) i] = a[(size_t) ord[(size_t) i]]; return o; }
-    static constexpr int PW = 190;
-    int stepPx() const { return PW + (getWidth() - 100 - PW * 6) / 5; }
+    static constexpr int PW = 172, PNW = 64, EDGE = 36;       // pedal width, amp panel width, side margin
+    int gapPx() const { return (getWidth() - 2 * EDGE - 6 * PW - 2 * PNW) / 7; }
+    int stepPx() const { return PW + gapPx(); }
+    int pedStart() const { return EDGE + PW + gapPx() + PNW + gapPx(); }
     void layoutPedals (Pedal* skip = nullptr)
     {
-        auto r = getLocalBounds().reduced (50, 0); r.removeFromTop (20); r.removeFromBottom (6);
-        gate.setBounds (r.getX(), r.getY(), PW, r.getHeight());
-        auto o = inOrder(); for (int i = 0; i < 5; ++i) if (o[(size_t) i] != skip) o[(size_t) i]->setBounds (r.getX() + (i + 1) * stepPx(), r.getY(), PW, r.getHeight());
+        auto r = getLocalBounds().reduced (EDGE, 0); r.removeFromTop (20); r.removeFromBottom (6);
+        gate.setBounds (EDGE, r.getY(), PW, r.getHeight());
+        ampIn = juce::Rectangle<int> (EDGE + PW + gapPx(), r.getY(), PNW, r.getHeight());
+        ampRet = juce::Rectangle<int> (pedStart() + 4 * stepPx() + PW + gapPx(), r.getY(), PNW, r.getHeight());
+        auto o = inOrder(); for (int i = 0; i < 5; ++i) if (o[(size_t) i] != skip) o[(size_t) i]->setBounds (pedStart() + i * stepPx(), r.getY(), PW, r.getHeight());
         repaint();
     }
     void moved (Pedal* p, const juce::MouseEvent& e, int ph)
     {
         if (ph == 0) { dragPedal = p; dragStartX = p->getX(); return; }
         if (dragPedal != p) return;
-        auto r = getLocalBounds().reduced (50, 0);
         if (ph == 1)
         {
-            const int x = juce::jlimit (r.getX() + stepPx(), r.getRight() - PW, dragStartX + e.getDistanceFromDragStartX());
+            const int x = juce::jlimit (pedStart(), pedStart() + 4 * stepPx(), dragStartX + e.getDistanceFromDragStartX());
             p->setTopLeftPosition (x, p->getY()); p->toFront (false);
-            const int slot = juce::jlimit (0, 4, (int) std::lround ((double) (x - r.getX()) / stepPx()) - 1);
+            const int slot = juce::jlimit (0, 4, (int) std::lround ((double) (x - pedStart()) / stepPx()));
             const auto al = all(); const int id = (int) (std::find (al.begin(), al.end(), p) - al.begin());
             const int cur = (int) (std::find (ord.begin(), ord.end(), id) - ord.begin());
             if (slot != cur) { std::array<int, 5> n; int k = 0; for (int i = 0; i < 5; ++i) if (ord[(size_t) i] != id) n[(size_t) k++] = ord[(size_t) i]; for (int i = 4; i > slot; --i) n[(size_t) i] = n[(size_t) i - 1]; n[(size_t) slot] = id; ord = n; }
@@ -359,7 +362,7 @@ public:
         g.restoreState();
         g.setColour (cDim); g.setFont (juce::Font (juce::FontOptions (12.f, juce::Font::bold)));
         g.drawText ("PEDALBOARD", 14, 3, 100, 16, juce::Justification::centredLeft);
-        g.setFont (juce::Font (juce::FontOptions (11.f))); g.drawText ("the gate is always first  -  drag the other pedals to change the order: compressor and drive go in front of the amp, chorus, delay and reverb come after it", 110, 3, getWidth() - 130, 16, juce::Justification::centredLeft);
+        g.setFont (juce::Font (juce::FontOptions (11.f))); g.drawText ("effects loop: the pedals sit between the amp's SEND and RETURN  -  the gate is in front of the amp input  -  drag to reorder (compressor and drive first, then chorus, delay, reverb)", 110, 3, getWidth() - 130, 16, juce::Justification::centredLeft);
 
         const float y = (float) comp.getY() + comp.jackY();
         auto cable = [&] (float x0, float x1)
@@ -373,20 +376,40 @@ public:
             plug (g, x0 - 1.f, y, +1); plug (g, x1 + 1.f, y, -1);
         };
         auto ps = inOrder();
-        const float inX = 22.f, outX = (float) getWidth() - 22.f;
+        const float inX = 22.f; const float jackY0 = comp.jackY();
+        auto jack = [&] (float jx, float jy)
+        {
+            g.setGradientFill (juce::ColourGradient (juce::Colour (0xffdadcde), jx, jy - 8, juce::Colour (0xff5c5f65), jx, jy + 8, false)); g.fillRoundedRectangle (jx, jy - 8, 6.f, 16.f, 2.f);
+            g.setColour (juce::Colours::black); g.drawRoundedRectangle (jx, jy - 8, 6.f, 16.f, 2.f, 1.f);
+        };
+        auto panel = [&] (juce::Rectangle<int> b, const juce::String& l1, const juce::String& l2, const juce::String& jl, bool jackLeft, bool jackRight, const juce::String& jr)
+        {
+            auto f = b.toFloat().reduced (3.f, 1.f);
+            g.setColour (juce::Colours::black.withAlpha (0.55f)); g.fillRoundedRectangle (f.translated (1.5f, 3.f), 6.f);
+            g.setGradientFill (juce::ColourGradient (juce::Colour (0xff3a3a40), 0, f.getY(), juce::Colour (0xff141416), 0, f.getBottom(), false)); g.fillRoundedRectangle (f, 6.f);
+            g.setColour (juce::Colour (0xff8a877c)); g.drawRoundedRectangle (f, 6.f, 1.2f);
+            g.setColour (juce::Colour (0xfff0e4c4)); g.setFont (juce::Font (juce::FontOptions (13.f, juce::Font::bold))); g.drawText (l1, b.withHeight (22).withY (b.getY() + 6), juce::Justification::centred);
+            g.setColour (juce::Colour (0xffb9b4a6)); g.setFont (juce::Font (juce::FontOptions (9.5f))); g.drawText (l2, b.reduced (2, 0).withHeight (26).withY (b.getY() + 26), juce::Justification::centred, true);
+            const float jy = (float) b.getY() + jackY0;
+            if (jackLeft) { jack (f.getX() - 4.f, jy); g.setColour (juce::Colour (0xfff0e4c4)); g.setFont (juce::Font (juce::FontOptions (9.5f, juce::Font::bold))); g.drawText (jl, b.getX() + 2, (int) jy + 12, 40, 12, juce::Justification::centredLeft); }
+            if (jackRight) { jack (f.getRight() - 2.f, jy); g.setColour (juce::Colour (0xfff0e4c4)); g.setFont (juce::Font (juce::FontOptions (9.5f, juce::Font::bold))); g.drawText (jr, b.getRight() - 42, (int) jy + 12, 40, 12, juce::Justification::centredRight); }
+        };
+        panel (ampIn, "AMP", "gain + EQ", "IN", true, true, "SEND");
+        panel (ampRet, "AMP", "power + cab", "RETURN", true, false, {});
         cable (inX, (float) gate.getX() - 1.f);
-        cable ((float) gate.getRight() + 1.f, (float) ps[0]->getX() - 1.f);
+        cable ((float) gate.getRight() + 1.f, (float) ampIn.getX() - 1.f);
+        cable ((float) ampIn.getRight() + 1.f, (float) ps[0]->getX() - 1.f);
         for (size_t i = 0; i + 1 < ps.size(); ++i) cable ((float) ps[i]->getRight() + 1.f, (float) ps[i + 1]->getX() - 1.f);
-        cable ((float) ps[4]->getRight() + 1.f, outX);
+        cable ((float) ps[4]->getRight() + 1.f, (float) ampRet.getX() - 1.f);
         g.setColour (cDim); g.setFont (juce::Font (juce::FontOptions (10.f, juce::Font::bold)));
-        g.drawText ("GUITAR", 4, (int) y + 24, 50, 12, juce::Justification::centredLeft); g.drawText ("TO AMP", getWidth() - 56, (int) y + 24, 52, 12, juce::Justification::centredRight);
+        g.drawText ("GUITAR", 4, (int) y + 24, 50, 12, juce::Justification::centredLeft);
     }
     void resized() override
     {
         layoutPedals();
     }
 private:
-    Pedal* dragPedal = nullptr; int dragStartX = 0;
+    Pedal* dragPedal = nullptr; int dragStartX = 0; juce::Rectangle<int> ampIn, ampRet;
 };
 
 // A clickable section header with an arrow, used to collapse the noise control

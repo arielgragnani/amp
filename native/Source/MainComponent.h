@@ -10,7 +10,7 @@
 class MainComponent : public juce::Component, private juce::Timer, private juce::ChangeListener
 {
 public:
-    static constexpr int DesignW = 1360, DesignH = 975;
+    static constexpr int DesignW = 1440, DesignH = 975;
 
     MainComponent()
     {
@@ -90,6 +90,23 @@ public:
           const auto nm = juce::String (presets()[theme()].name).toUpperCase();
           g.setColour (juce::Colours::black.withAlpha (0.7f)); g.drawText (nm, nr.translated (1, 2), juce::Justification::centredLeft);
           g.setColour (juce::Colour (nameCol[theme()])); g.drawText (nm, nr, juce::Justification::centredLeft); }
+        { // the amp's jacks: guitar in, effects send, effects return (cables run down to the pedalboard)
+          const float x0 = (float) plate.getX() + 640.f, cy = (float) plate.getBottom() - 30.f;
+          g.setColour (juce::Colour (0xffb9b4a6)); g.setFont (juce::Font (juce::FontOptions (10.5f, juce::Font::bold)));
+          g.drawText ("IN > GAIN > EQ > SEND        RETURN > VOLUME > POWER AMP", juce::Rectangle<int> ((int) x0 - 60, (int) cy - 30, 520, 13), juce::Justification::centredLeft);
+          const char* names[3] = { "INPUT", "SEND", "RETURN" }; const float xs[3] = { x0, x0 + 110.f, x0 + 220.f };
+          for (int k = 0; k < 3; ++k)
+          {
+              const float x = xs[k];
+              g.setColour (juce::Colours::black.withAlpha (0.6f)); g.fillEllipse (x - 11, cy - 9, 22, 22);
+              g.setGradientFill (juce::ColourGradient (juce::Colour (0xffeeeeef), x - 8, cy - 10, juce::Colour (0xff62656b), x + 8, cy + 10, false)); g.fillEllipse (x - 10, cy - 11, 20, 20);
+              g.setColour (juce::Colour (0xff222226)); g.drawEllipse (x - 10, cy - 11, 20, 20, 1.f);
+              g.setColour (juce::Colour (0xff0c0c0e)); g.fillEllipse (x - 5, cy - 6, 10, 10);
+              juce::Path cab; cab.startNewSubPath (x, cy - 1); cab.quadraticTo (x, cy + 14.f, x + (k == 0 ? -12.f : 10.f), cy + 22.f);         // plugged cable
+              g.setColour (juce::Colour (0xff0b0b0c)); g.strokePath (cab, juce::PathStrokeType (3.5f));
+              g.setColour (juce::Colour (0xfff0e4c4)); g.setFont (juce::Font (juce::FontOptions (10.f, juce::Font::bold)));
+              g.drawText (names[k], (int) x + 14, (int) cy - 7, 54, 13, juce::Justification::centredLeft);
+          } }
         for (float rx : { plate.getX() + 9.f, plate.getRight() - 9.f }) for (float ry : { plate.getY() + 9.f, plate.getBottom() - 9.f }) altui::drawRivet (g, rx, ry);
         // signature, slightly tilted, where the power lamp would be
         { g.saveState(); const float cx = (float) plate.getRight() - 140.f, cy = (float) plate.getBottom() - 34.f;
