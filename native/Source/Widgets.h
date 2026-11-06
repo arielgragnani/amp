@@ -47,30 +47,53 @@ public:
     {
         const int style = (int) s.getProperties().getWithDefault ("style", 0);
         const float cx = x + w * 0.5f, cy = y + h * 0.5f, ang = a0 + pos * (a1 - a0);
-        if (style == 1)            // amp: black skirted knob with a painted pointer, printed scale around it
+        if (style == 1)            // amp: skirted knob with a painted pointer, printed scale around it (look depends on the amp: "theme")
         {
+            const int th = juce::jlimit (0, 5, (int) s.getProperties().getWithDefault ("theme", 0));
+            struct T { juce::uint32 skHi, skLo, fcHi, fcLo, ptr, num; float skirt, ridges; bool dot; };
+            static const T tt[6] = {
+                { 0xff3b3b3f, 0xff050506, 0xff4a4a4f, 0xff0d0d0f, 0xfff4f1e8, 0xffe9e2cf, 1.00f, 36, false },   // 0 black skirted knob, cream pointer
+                { 0xff4b4d52, 0xff0b0b0d, 0xfff2f2f4, 0xff868a92, 0xff15151a, 0xffd5dde6, 1.00f, 48, false },   // 1 chrome dome, black pointer
+                { 0xff5a2e20, 0xff1a0905, 0xff7a4430, 0xff2a120a, 0xfff2dfb8, 0xffe9b79a, 0.94f, 24, false },   // 2 brown bakelite
+                { 0xffcdbd92, 0xff6e5e38, 0xfff1e5c2, 0xffb09a68, 0xff2c1a0c, 0xffe8dcb0, 0.84f, 0,  false },   // 3 ivory barrel, no skirt
+                { 0xff2a2a2d, 0xff000000, 0xff1b1b1e, 0xff050506, 0xffffffff, 0xfff2f2f2, 1.00f, 72, true  },   // 4 knurled black, white dot
+                { 0xff2b2a28, 0xff030303, 0xfff0d986, 0xff8a6a1e, 0xff120d04, 0xffe8cd72, 1.00f, 30, false } }; // 5 black skirt, brass cap
+            const T& k = tt[th];
             const float d = (float) std::min (w, h), r = d * 0.31f;
             g.setFont (juce::Font (juce::FontOptions (d * 0.11f, juce::Font::bold)));
             for (int i = 0; i <= 10; ++i)
             {
                 const float a = a0 + (a1 - a0) * (float) i / 10.f, sn = std::sin (a), cs = -std::cos (a);
-                g.setColour (juce::Colour (0xffe9e2cf).withAlpha (0.88f));
+                g.setColour (juce::Colour (k.num).withAlpha (0.88f));
                 g.drawText (juce::String (i), juce::Rectangle<float> (cx + sn * d * 0.445f - 8, cy + cs * d * 0.445f - 6, 16, 12), juce::Justification::centred);
             }
-            g.setColour (juce::Colours::black.withAlpha (0.65f)); g.fillEllipse (cx - r - 1, cy - r + 3, (r + 1) * 2, (r + 1) * 2);                 // cast shadow
-            g.setGradientFill (juce::ColourGradient (juce::Colour (0xff3b3b3f), cx - r, cy - r, juce::Colour (0xff050506), cx + r, cy + r, false));       // skirt
-            g.fillEllipse (cx - r, cy - r, r * 2, r * 2);
-            g.saveState(); juce::Path sk; sk.addEllipse (cx - r, cy - r, r * 2, r * 2); g.reduceClipRegion (sk);
-            for (int i = 0; i < 36; ++i) { const float a = (float) i / 36.f * juce::MathConstants<float>::twoPi; g.setColour (juce::Colours::white.withAlpha (0.07f)); g.drawLine (cx + std::sin (a) * r * 0.80f, cy - std::cos (a) * r * 0.80f, cx + std::sin (a) * r, cy - std::cos (a) * r, 1.f); }
-            g.restoreState();
-            g.setColour (juce::Colour (0xff070708)); g.drawEllipse (cx - r, cy - r, r * 2, r * 2, 1.2f);
-            const float r2 = r * 0.74f;                                                                                                           // raised top face
-            g.setGradientFill (juce::ColourGradient (juce::Colour (0xff4a4a4f), cx - r2 * 0.6f, cy - r2 * 0.8f, juce::Colour (0xff0d0d0f), cx + r2 * 0.7f, cy + r2, true));
+            const float rs = r * k.skirt;
+            g.setColour (juce::Colours::black.withAlpha (0.65f)); g.fillEllipse (cx - rs - 1, cy - rs + 3, (rs + 1) * 2, (rs + 1) * 2);                 // cast shadow
+            g.setGradientFill (juce::ColourGradient (juce::Colour (k.skHi), cx - rs, cy - rs, juce::Colour (k.skLo), cx + rs, cy + rs, false));       // skirt
+            g.fillEllipse (cx - rs, cy - rs, rs * 2, rs * 2);
+            if (k.ridges > 0)
+            {
+                g.saveState(); juce::Path sk; sk.addEllipse (cx - rs, cy - rs, rs * 2, rs * 2); g.reduceClipRegion (sk);
+                const int nr = (int) k.ridges;
+                for (int i = 0; i < nr; ++i) { const float a = (float) i / (float) nr * juce::MathConstants<float>::twoPi; g.setColour (juce::Colours::white.withAlpha (th == 4 ? 0.16f : 0.07f)); g.drawLine (cx + std::sin (a) * rs * 0.80f, cy - std::cos (a) * rs * 0.80f, cx + std::sin (a) * rs, cy - std::cos (a) * rs, 1.f); }
+                g.restoreState();
+            }
+            g.setColour (juce::Colours::black.withAlpha (0.9f)); g.drawEllipse (cx - rs, cy - rs, rs * 2, rs * 2, 1.2f);
+            const float r2 = rs * (th == 3 ? 0.88f : 0.74f);                                                                                       // raised top face
+            g.setGradientFill (juce::ColourGradient (juce::Colour (k.fcHi), cx - r2 * 0.6f, cy - r2 * 0.8f, juce::Colour (k.fcLo), cx + r2 * 0.7f, cy + r2, true));
             g.fillEllipse (cx - r2, cy - r2, r2 * 2, r2 * 2);
             g.setColour (juce::Colours::white.withAlpha (0.16f)); g.drawEllipse (cx - r2 + 0.5f, cy - r2 + 0.5f, r2 * 2 - 1, r2 * 2 - 1, 1.f);
-            g.setColour (juce::Colours::white.withAlpha (0.14f)); g.fillEllipse (cx - r2 * 0.55f, cy - r2 * 0.85f, r2 * 0.8f, r2 * 0.35f);       // specular
-            juce::Path p; p.addRoundedRectangle (-1.7f, -r * 0.97f, 3.4f, r * 0.80f, 1.5f);
-            g.setColour (juce::Colour (0xfff4f1e8)); g.fillPath (p, juce::AffineTransform::rotation (ang).translated (cx, cy));
+            g.setColour (juce::Colours::white.withAlpha (th == 1 || th == 5 ? 0.35f : 0.14f)); g.fillEllipse (cx - r2 * 0.55f, cy - r2 * 0.85f, r2 * 0.8f, r2 * 0.35f);       // specular
+            if (k.dot)
+            {
+                const float px = cx + std::sin (ang) * rs * 0.78f, py = cy - std::cos (ang) * rs * 0.78f;
+                g.setColour (juce::Colour (k.ptr)); g.fillEllipse (px - 3.2f, py - 3.2f, 6.4f, 6.4f);
+            }
+            else
+            {
+                juce::Path p; p.addRoundedRectangle (th == 5 ? -1.1f : -1.7f, -rs * 0.97f, th == 5 ? 2.2f : 3.4f, rs * (th == 3 ? 0.70f : 0.80f), 1.5f);
+                g.setColour (juce::Colour (k.ptr)); g.fillPath (p, juce::AffineTransform::rotation (ang).translated (cx, cy));
+            }
             return;
         }
         if (style == 2)            // pedal: small silver-edged knob with a white line
@@ -145,6 +168,10 @@ public:
     {
         name.setColour (juce::Label::textColourId, c); s.setColour (juce::Slider::textBoxTextColourId, c.withAlpha (0.75f));
         s.setColour (juce::Slider::rotarySliderFillColourId, arc); s.setColour (juce::Slider::rotarySliderOutlineColourId, c.withAlpha (0.25f));
+    }
+    void setTheme (int th, juce::Font f)
+    {
+        s.getProperties().set ("theme", th); name.setFont (f); s.repaint();
     }
     void setValueQuiet (double v) { s.setValue (v, juce::dontSendNotification); }
     void resized() override { auto r = getLocalBounds(); name.setBounds (r.removeFromTop (style == 2 ? 14 : 18)); s.setBounds (r); }

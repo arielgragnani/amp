@@ -78,14 +78,17 @@ inline void drawRivet (juce::Graphics& g, float x, float y)
 }
 
 // Dark aged control plate with fine brushing
-inline void drawPlate (juce::Graphics& g, juce::Rectangle<float> r)
+inline void drawPlate (juce::Graphics& g, juce::Rectangle<float> r, int theme = 0)
 {
+    static const juce::uint32 pt[6][3] = { { 0xff35353a, 0xff17171a, 0xff77756d }, { 0xff3a4048, 0xff191c21, 0xff8a929c }, { 0xff3b2b23, 0xff1a110d, 0xff8a6a50 },
+                                           { 0xff32362a, 0xff13150e, 0xff8c9060 }, { 0xff1d1d1f, 0xff060607, 0xff55555a }, { 0xff24373a, 0xff0b1514, 0xffb89a4a } };
+    const auto* pc = pt[juce::jlimit (0, 5, theme)];
     g.setColour (juce::Colours::black.withAlpha (0.6f)); g.fillRoundedRectangle (r.translated (0, 2.5f), 4.f);
-    g.setGradientFill (juce::ColourGradient (juce::Colour (0xff35353a), 0, r.getY(), juce::Colour (0xff17171a), 0, r.getBottom(), false)); g.fillRoundedRectangle (r, 4.f);
+    g.setGradientFill (juce::ColourGradient (juce::Colour (pc[0]), 0, r.getY(), juce::Colour (pc[1]), 0, r.getBottom(), false)); g.fillRoundedRectangle (r, 4.f);
     g.saveState(); juce::Path p; p.addRoundedRectangle (r, 4.f); g.reduceClipRegion (p);
     for (int i = 0, n = (int) r.getHeight(); i < n; i += 2) { unsigned h = (unsigned) i * 2654435761u; h ^= h >> 15; g.setColour (((h & 1) ? juce::Colours::white : juce::Colours::black).withAlpha (0.018f + 0.02f * ((h >> 3) & 3) / 3.f)); g.fillRect (r.getX(), r.getY() + (float) i, r.getWidth(), 1.f); }
     g.restoreState();
-    g.setColour (juce::Colour (0xff77756d)); g.drawRoundedRectangle (r.reduced (0.5f), 4.f, 1.2f);
+    g.setColour (juce::Colour (pc[2])); g.drawRoundedRectangle (r.reduced (0.5f), 4.f, 1.2f);
     g.setColour (juce::Colours::black.withAlpha (0.8f)); g.drawRoundedRectangle (r.reduced (2.f), 3.f, 1.f);
 }
 
@@ -104,13 +107,22 @@ public:
         g.setFont (juce::Font (juce::FontOptions (15.f, juce::Font::bold)));
         for (int i = 0; i < n; ++i)
         {
-            auto r = juce::Rectangle<float> (i * w + 3, 4.f, w - 6, (float) getHeight() - 4.f);
             const bool on = i == sel, hot = i == hover; const Skin& k = skinFor (i);
+            auto r = juce::Rectangle<float> (i * w + 3, on ? 0.f : 7.f, w - 6, (float) getHeight() - (on ? 0.f : 7.f));
             juce::Path p; p.addRoundedRectangle (r.getX(), r.getY(), r.getWidth(), r.getHeight() + 8, 7.f, 7.f, true, true, false, false);
-            const auto top = on ? k.base.brighter (0.35f) : (hot ? k.thread.brighter (0.5f) : k.thread.brighter (0.15f)), bot = on ? k.base.darker (0.2f) : k.thread.darker (0.5f);
+            const auto top = on ? k.base.brighter (0.55f) : (hot ? k.thread.brighter (0.5f) : k.thread.darker (0.25f)), bot = on ? k.base : k.thread.darker (0.7f);
             g.setGradientFill (juce::ColourGradient (top, 0, r.getY(), bot, 0, r.getBottom(), false)); g.fillPath (p);
-            g.setColour (juce::Colours::black.withAlpha (0.8f)); g.strokePath (p, juce::PathStrokeType (1.4f));
-            g.setColour (on ? juce::Colour (0xff1a1006) : juce::Colour (0xfff0e6cc)); g.drawText (names[i], r.toNearestInt(), juce::Justification::centred);
+            if (on) { g.setColour (juce::Colour (0xfffff3c8).withAlpha (0.9f)); g.strokePath (p, juce::PathStrokeType (2.6f)); g.setColour (juce::Colours::black.withAlpha (0.8f)); g.strokePath (p, juce::PathStrokeType (1.0f)); }
+            else { g.setColour (juce::Colours::black.withAlpha (0.85f)); g.strokePath (p, juce::PathStrokeType (1.4f)); }
+            g.setFont (juce::Font (juce::FontOptions (on ? 16.f : 14.f, juce::Font::bold)));
+            if (on)
+            {
+                const float lx = r.getX() + 14.f, ly = r.getCentreY();                       // lit pilot lamp on the active amp
+                g.setColour (juce::Colour (0x66ff4a30)); g.fillEllipse (lx - 8, ly - 8, 16, 16);
+                g.setColour (juce::Colour (0xffff5a3c)); g.fillEllipse (lx - 4, ly - 4, 8, 8);
+                g.setColour (juce::Colour (0xff1a1006)); g.drawText (names[i], r.toNearestInt().withTrimmedLeft (14), juce::Justification::centred);
+            }
+            else { g.setColour (juce::Colour (0xfff0e6cc).withAlpha (hot ? 0.95f : 0.62f)); g.drawText (names[i], r.toNearestInt(), juce::Justification::centred); }
         }
     }
     void mouseMove (const juce::MouseEvent& e) override { const int h = indexAt (e.x); if (h != hover) { hover = h; repaint(); } }
@@ -119,6 +131,26 @@ public:
 private:
     juce::StringArray names; int sel = -1, hover = -1;
     int indexAt (int x) const { const int n = names.size(); return n ? juce::jlimit (0, n - 1, x * n / std::max (1, getWidth())) : -1; }
+};
+
+// ---------- quick-recall memory button (left click recalls or saves when empty, right click opens a menu) ----------
+class SlotButton : public juce::Button
+{
+public:
+    bool filled = false, current = false; std::function<void()> onRight;
+    SlotButton() : juce::Button ({}) { setWantsKeyboardFocus (false); setMouseClickGrabsKeyboardFocus (false); }
+    void mouseDown (const juce::MouseEvent& e) override { if (e.mods.isPopupMenu()) { if (onRight) onRight(); return; } juce::Button::mouseDown (e); }
+    void paintButton (juce::Graphics& g, bool over, bool down) override
+    {
+        auto r = getLocalBounds().toFloat().reduced (1.f);
+        g.setGradientFill (juce::ColourGradient (juce::Colour (down ? 0xff1a1a1c : (over ? 0xff48484e : 0xff38383d)), 0, r.getY(), juce::Colour (0xff17171a), 0, r.getBottom(), false)); g.fillRoundedRectangle (r, 5.f);
+        g.setColour (current ? juce::Colour (0xffffe9a8) : juce::Colour (0xff6a6a72)); g.drawRoundedRectangle (r, 5.f, current ? 2.f : 1.f);
+        g.setColour (filled ? juce::Colour (0xfff0e4c4) : juce::Colour (0xff8a8a92)); g.setFont (juce::Font (juce::FontOptions (15.f, juce::Font::bold)));
+        g.drawText (getButtonText(), r.withTrimmedBottom (6.f), juce::Justification::centred);
+        const float lx = r.getCentreX(), ly = r.getBottom() - 6.f;                                     // lamp: lit when something is stored here
+        if (filled) { g.setColour (juce::Colour (0x66ffb02e)); g.fillEllipse (lx - 5, ly - 5, 10, 10); }
+        g.setColour (filled ? juce::Colour (0xffffb02e) : juce::Colour (0xff2c2c30)); g.fillEllipse (lx - 2.5f, ly - 2.5f, 5.f, 5.f);
+    }
 };
 
 // ---------- chrome toggle switch with a printed label ----------
@@ -173,6 +205,7 @@ public:
     juce::String title; juce::Colour body, ink; FootSwitch foot; std::vector<std::unique_ptr<Knob>> knobs;
     std::function<void()> onChange;
     juce::StringArray typeNames; int typeIdx = 0;          // optional mode selector (reverb type, delay type)
+    juce::TextButton action; juce::String status; bool hasAction = false, movable = true;   // optional action button (Learn) with a short status line
     std::function<void (Pedal*, const juce::MouseEvent&, int)> onMove;   // 0 down, 1 drag, 2 up: lets the board reorder pedals
     Pedal (juce::String t, juce::Colour c, juce::Colour i) : title (std::move (t)), body (c), ink (i)
     {
@@ -184,8 +217,11 @@ public:
         k->s.onValueChange = [this] { if (onChange) onChange(); };
         addAndMakeVisible (*k); knobs.push_back (std::move (k)); return *knobs.back();
     }
+    void addAction (const juce::String& text) { hasAction = true; action.setButtonText (text); addAndMakeVisible (action); action.setWantsKeyboardFocus (false); resized(); }
+    void setStatus (const juce::String& s) { if (s != status) { status = s; repaint(); } }
     void mouseDown (const juce::MouseEvent& e) override
     {
+        if (! movable) return;
         if (typeNames.size() > 0 && typeRect.contains (e.getPosition()))
         {
             const int n = typeNames.size(); typeIdx = (typeIdx + (e.x < typeRect.getCentreX() ? n - 1 : 1)) % n; typeDrag = true; repaint(); if (onChange) onChange(); return;
@@ -194,7 +230,7 @@ public:
     }
     void mouseDrag (const juce::MouseEvent& e) override { if (! typeDrag && onMove) onMove (this, e, 1); }
     void mouseUp (const juce::MouseEvent& e) override { if (! typeDrag && onMove) onMove (this, e, 2); typeDrag = false; }
-    juce::MouseCursor getMouseCursor() override { return juce::MouseCursor::DraggingHandCursor; }
+    juce::MouseCursor getMouseCursor() override { return movable ? juce::MouseCursor::DraggingHandCursor : juce::MouseCursor::NormalCursor; }
     // y of the jack centre, in this component's coordinates
     float jackY() const { return getHeight() * 0.46f; }
     void paint (juce::Graphics& g) override
@@ -231,6 +267,7 @@ public:
             g.fillPath (l); g.fillPath (rr);
             g.setColour (juce::Colours::white.withAlpha (0.9f)); g.setFont (juce::Font (juce::FontOptions (11.5f, juce::Font::bold))); g.drawText (typeNames[typeIdx].toUpperCase(), typeRect.reduced (14, 0), juce::Justification::centred);
         }
+        if (hasAction) { g.setColour (ink.withAlpha (0.85f)); g.setFont (juce::Font (juce::FontOptions (10.5f, juce::Font::bold))); g.drawText (status, statusRect, juce::Justification::centredLeft); }
         // LED
         const bool on = foot.getToggleState(); const float lx = r.getCentreX(), ly = (float) ledY;
         if (on) { g.setColour (juce::Colour (0x44ff3a2a)); g.fillEllipse (lx - 9, ly - 9, 18, 18); }
@@ -245,13 +282,14 @@ public:
         auto r = getLocalBounds().reduced (12, 0); r.removeFromTop (6);
         auto kr = r.removeFromTop (46); const int n = (int) knobs.size(), kw = n ? kr.getWidth() / n : 0;
         for (auto& k : knobs) k->setBounds (kr.removeFromLeft (kw).reduced (1, 0));
-        if (typeNames.size() > 0) { typeRect = juce::Rectangle<int> (14, kr.getBottom() + 2, getWidth() - 28, 17); kr.removeFromBottom (0); nameY = typeRect.getBottom() + 1; } else nameY = kr.getBottom() + 3;
+        if (typeNames.size() > 0 || hasAction) { typeRect = juce::Rectangle<int> (14, kr.getBottom() + 2, getWidth() - 28, 17); nameY = typeRect.getBottom() + 1; } else nameY = kr.getBottom() + 3;
+        if (hasAction) { auto ar = typeRect; action.setBounds (ar.removeFromLeft (58)); statusRect = ar.withTrimmedLeft (6); }
         ledY = nameY + 18 + 8;
         const int sy = ledY + 9, sh = std::max (24, getHeight() - sy - 10);
         foot.setBounds (juce::Rectangle<int> (10, sy, getWidth() - 20, sh));
     }
 private:
-    int nameY = 52, ledY = 78; juce::Rectangle<int> typeRect; bool typeDrag = false;
+    int nameY = 52, ledY = 78; juce::Rectangle<int> typeRect, statusRect; bool typeDrag = false;
 };
 
 // The pedals with patch cables between them
@@ -263,20 +301,23 @@ public:
     Pedal delay  { "Delay",   juce::Colour (0xff7a3fa8), juce::Colour (0xfff6ecff) };
     Pedal reverb { "Reverb",      juce::Colour (0xff1f8a6a), juce::Colour (0xffeafff6) };
     Pedal chorus { "Chorus",       juce::Colour (0xffe8741a), juce::Colour (0xff2a1203) };
+    Pedal gate   { "Noise Gate",  juce::Colour (0xffe9e9e4), juce::Colour (0xff22232a) };   // white, always first, cannot be moved
     std::array<int, 5> ord { 0, 1, 2, 3, 4 };       // left to right: ids 0 comp, 1 drive, 2 chorus, 3 delay, 4 reverb
     std::function<void()> onOrder;
     PedalBoard()
     {
+        addAndMakeVisible (gate); gate.movable = false;
         for (auto* p : all()) { addAndMakeVisible (*p); p->onMove = [this] (Pedal* q, const juce::MouseEvent& e, int ph) { moved (q, e, ph); }; }
     }
     std::array<Pedal*, 5> all() { return { &comp, &drive, &chorus, &delay, &reverb }; }      // by id
     std::array<Pedal*, 5> inOrder() { auto a = all(); std::array<Pedal*, 5> o; for (int i = 0; i < 5; ++i) o[(size_t) i] = a[(size_t) ord[(size_t) i]]; return o; }
-    static constexpr int PW = 204;
-    int stepPx() const { return PW + (getWidth() - 100 - PW * 5) / 4; }
+    static constexpr int PW = 190;
+    int stepPx() const { return PW + (getWidth() - 100 - PW * 6) / 5; }
     void layoutPedals (Pedal* skip = nullptr)
     {
         auto r = getLocalBounds().reduced (50, 0); r.removeFromTop (20); r.removeFromBottom (6);
-        auto o = inOrder(); for (int i = 0; i < 5; ++i) if (o[(size_t) i] != skip) o[(size_t) i]->setBounds (r.getX() + i * stepPx(), r.getY(), PW, r.getHeight());
+        gate.setBounds (r.getX(), r.getY(), PW, r.getHeight());
+        auto o = inOrder(); for (int i = 0; i < 5; ++i) if (o[(size_t) i] != skip) o[(size_t) i]->setBounds (r.getX() + (i + 1) * stepPx(), r.getY(), PW, r.getHeight());
         repaint();
     }
     void moved (Pedal* p, const juce::MouseEvent& e, int ph)
@@ -286,9 +327,9 @@ public:
         auto r = getLocalBounds().reduced (50, 0);
         if (ph == 1)
         {
-            const int x = juce::jlimit (r.getX(), r.getRight() - PW, dragStartX + e.getDistanceFromDragStartX());
+            const int x = juce::jlimit (r.getX() + stepPx(), r.getRight() - PW, dragStartX + e.getDistanceFromDragStartX());
             p->setTopLeftPosition (x, p->getY()); p->toFront (false);
-            const int slot = juce::jlimit (0, 4, (int) std::lround ((double) (x - r.getX()) / stepPx()));
+            const int slot = juce::jlimit (0, 4, (int) std::lround ((double) (x - r.getX()) / stepPx()) - 1);
             const auto al = all(); const int id = (int) (std::find (al.begin(), al.end(), p) - al.begin());
             const int cur = (int) (std::find (ord.begin(), ord.end(), id) - ord.begin());
             if (slot != cur) { std::array<int, 5> n; int k = 0; for (int i = 0; i < 5; ++i) if (ord[(size_t) i] != id) n[(size_t) k++] = ord[(size_t) i]; for (int i = 4; i > slot; --i) n[(size_t) i] = n[(size_t) i - 1]; n[(size_t) slot] = id; ord = n; }
@@ -318,7 +359,7 @@ public:
         g.restoreState();
         g.setColour (cDim); g.setFont (juce::Font (juce::FontOptions (12.f, juce::Font::bold)));
         g.drawText ("PEDALBOARD", 14, 3, 100, 16, juce::Justification::centredLeft);
-        g.setFont (juce::Font (juce::FontOptions (11.f))); g.drawText ("drag a pedal to change the order  -  compressor and drive go in front of the amp, chorus, delay and reverb come after it", 110, 3, getWidth() - 130, 16, juce::Justification::centredLeft);
+        g.setFont (juce::Font (juce::FontOptions (11.f))); g.drawText ("the gate is always first  -  drag the other pedals to change the order: compressor and drive go in front of the amp, chorus, delay and reverb come after it", 110, 3, getWidth() - 130, 16, juce::Justification::centredLeft);
 
         const float y = (float) comp.getY() + comp.jackY();
         auto cable = [&] (float x0, float x1)
@@ -333,7 +374,8 @@ public:
         };
         auto ps = inOrder();
         const float inX = 22.f, outX = (float) getWidth() - 22.f;
-        cable (inX, (float) ps[0]->getX() - 1.f);
+        cable (inX, (float) gate.getX() - 1.f);
+        cable ((float) gate.getRight() + 1.f, (float) ps[0]->getX() - 1.f);
         for (size_t i = 0; i + 1 < ps.size(); ++i) cable ((float) ps[i]->getRight() + 1.f, (float) ps[i + 1]->getX() - 1.f);
         cable ((float) ps[4]->getRight() + 1.f, outX);
         g.setColour (cDim); g.setFont (juce::Font (juce::FontOptions (10.f, juce::Font::bold)));

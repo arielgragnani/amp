@@ -18,8 +18,9 @@ else()
   FetchContent_MakeAvailable(JUCE)
 endif()
 
-juce_add_gui_app(AltGuitarAmpRack PRODUCT_NAME "Ariel Signature Amp Rack" COMPANY_NAME "Ariel" VERSION 1.1.0)
-juce_add_binary_data(AltFonts SOURCES Fonts/Sacramento-Regular.ttf)
+juce_add_gui_app(AltGuitarAmpRack PRODUCT_NAME "Ariel Signature Amp Rack" COMPANY_NAME "Ariel" VERSION 1.2.0
+  ICON_BIG "${CMAKE_CURRENT_SOURCE_DIR}/Icon/amp-256.png" ICON_SMALL "${CMAKE_CURRENT_SOURCE_DIR}/Icon/amp-32.png")
+juce_add_binary_data(AltFonts SOURCES Fonts/Sacramento-Regular.ttf Icon/amp-256.png)
 target_sources(AltGuitarAmpRack PRIVATE Source/Main.cpp)
 target_compile_definitions(AltGuitarAmpRack PRIVATE
   JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_REPORT_APP_USAGE=0 JUCE_DISPLAY_SPLASH_SCREEN=0

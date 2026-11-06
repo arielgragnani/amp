@@ -19,7 +19,7 @@ class AltApp : public juce::JUCEApplication
 {
 public:
     const juce::String getApplicationName() override { return juce::String::fromUTF8 ("Ariel Gragnani\xE2\x80\x99s Amp Rack"); }
-    const juce::String getApplicationVersion() override { return "1.1.0"; }
+    const juce::String getApplicationVersion() override { return "1.2.0"; }
     bool moreThanOneInstanceAllowed() override { return false; }
     void initialise (const juce::String&) override { win = std::make_unique<Win> (getApplicationName()); }
     void shutdown() override { win.reset(); }
@@ -31,6 +31,7 @@ public:
         {
             setUsingNativeTitleBar (true); setContentOwned (new ScaledHolder(), false);
             setResizable (true, true);
+            { const auto ic = juce::ImageCache::getFromMemory (BinaryData::amp256_png, BinaryData::amp256_pngSize); if (ic.isValid()) setIcon (ic); }   // title bar and taskbar
             const auto area = juce::Desktop::getInstance().getDisplays().getPrimaryDisplay()->userArea;
             const float s = std::min (1.0f, std::min ((area.getWidth() - 20.f) / MainComponent::DesignW, (area.getHeight() - 70.f) / MainComponent::DesignH));
             const int w = (int) (MainComponent::DesignW * s), h = (int) (MainComponent::DesignH * s);

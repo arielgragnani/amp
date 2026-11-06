@@ -10,7 +10,7 @@
 class MainComponent : public juce::Component, private juce::Timer, private juce::ChangeListener
 {
 public:
-    static constexpr int DesignW = 1260, DesignH = 975;
+    static constexpr int DesignW = 1360, DesignH = 975;
 
     MainComponent()
     {
@@ -43,6 +43,7 @@ public:
     bool keyPressed (const juce::KeyPress& k) override
     {
         if (tunerOpen) return false;
+        { const int c = k.getTextCharacter(); if (c >= '1' && c <= '6' && ! k.getModifiers().isCtrlDown()) { recallSlot (c - '1'); return true; } }
         if (k == juce::KeyPress::leftKey)  { stepVoicing (-1); return true; }
         if (k == juce::KeyPress::rightKey) { stepVoicing (+1); return true; }
         return false;
@@ -76,10 +77,19 @@ public:
         // header
         g.setGradientFill (juce::ColourGradient (juce::Colour (0xff25201a), 0, 0, juce::Colour (0xff0e0c0a), 0, 46, false)); g.fillRect (0, 0, getWidth(), 46);
         g.setColour (juce::Colour (0xff4a3a24)); g.fillRect (0, 45, getWidth(), 1);
+        g.setColour (memMsg.isEmpty() ? altui::cDim : altui::cAmber); g.setFont (juce::Font (juce::FontOptions (11.f, juce::Font::bold)));
+        g.drawText (memMsg.isEmpty() ? juce::String ("MEMORY") : memMsg, memRect, juce::Justification::centredRight);
 
         // amp: covered cabinet (tint follows the voicing) with a dark control plate
-        altui::fillTweed (g, ampBox.toFloat(), 10.f, voicing < 0 ? 6 : voicing);
-        altui::drawPlate (g, plate.toFloat());
+        altui::fillTweed (g, ampBox.toFloat(), 10.f, theme());
+        altui::drawPlate (g, plate.toFloat(), theme());
+        { // the active amp's name, lettered in its own style
+          static const juce::uint32 nameCol[6] = { 0xfff0e4c4, 0xffdfe6ee, 0xffe9b79a, 0xffe8dcb0, 0xffffffff, 0xffe8cd72 };
+          g.setFont (themeFont (theme()).withHeight (26.f).withExtraKerningFactor (0.08f));
+          const auto nr = juce::Rectangle<int> (plate.getX() + 262, plate.getBottom() - 54, plate.getWidth() - 262 - 330, 44);
+          const auto nm = juce::String (presets()[theme()].name).toUpperCase();
+          g.setColour (juce::Colours::black.withAlpha (0.7f)); g.drawText (nm, nr.translated (1, 2), juce::Justification::centredLeft);
+          g.setColour (juce::Colour (nameCol[theme()])); g.drawText (nm, nr, juce::Justification::centredLeft); }
         for (float rx : { plate.getX() + 9.f, plate.getRight() - 9.f }) for (float ry : { plate.getY() + 9.f, plate.getBottom() - 9.f }) altui::drawRivet (g, rx, ry);
         // signature, slightly tilted, where the power lamp would be
         { g.saveState(); const float cx = (float) plate.getRight() - 140.f, cy = (float) plate.getBottom() - 34.f;
@@ -112,6 +122,7 @@ public:
         chanBox.setBounds (top.removeFromLeft (120).reduced (0, 9)); top.removeFromLeft (6);
         gainLbl.setBounds (top.removeFromLeft (28)); gainSl.setBounds (top.removeFromLeft (110)); top.removeFromLeft (6);
         meterIn.setBounds (top.removeFromLeft (80).reduced (0, 17)); top.removeFromLeft (4); meterOut.setBounds (top.removeFromLeft (80).reduced (0, 17));
+        { auto sr = top.removeFromRight (6 * 42 + 90); memRect = sr.removeFromLeft (84).withTrimmedRight (6); for (auto& b : slotBtn) b.setBounds (sr.removeFromLeft (42).reduced (2, 9)); }
         r.reduce (12, 0);
         latencyLbl.setBounds (r.removeFromTop (22).withTrimmedLeft (4)); r.removeFromTop (2);
 
@@ -132,7 +143,7 @@ public:
         const int nh = noiseOpen ? 100 : 30;
         noiseBox = r.removeFromTop (nh); r.removeFromTop (8);
         noiseHeader.setBounds (noiseBox.getX() + 6, noiseBox.getY() + 2, 260, 26); noiseHeader.open = noiseOpen;
-        for (auto* c : std::initializer_list<juce::Component*> { &humBtn, &humHzBox, &humAmtLbl, &humAmtSl, &humStatus, &gateBtn, &gateLbl, &gateSl, &learnBtn, &learnStatus, &noiseSampleBtn }) c->setVisible (noiseOpen);
+        for (auto* c : std::initializer_list<juce::Component*> { &humBtn, &humHzBox, &humAmtLbl, &humAmtSl, &humStatus, &noiseSampleBtn }) c->setVisible (noiseOpen);
         if (noiseOpen)
         {
             auto a = noiseBox.reduced (12, 0); a.removeFromTop (30);
@@ -140,12 +151,8 @@ public:
             humBtn.setBounds (r1.removeFromLeft (100)); r1.removeFromLeft (6);
             humHzBox.setBounds (r1.removeFromLeft (80)); r1.removeFromLeft (10);
             humAmtLbl.setBounds (r1.removeFromLeft (58)); humAmtSl.setBounds (r1.removeFromLeft (130)); r1.removeFromLeft (30);
-            gateBtn.setBounds (r1.removeFromLeft (90)); r1.removeFromLeft (8);
-            gateLbl.setBounds (r1.removeFromLeft (30)); gateSl.setBounds (r1.removeFromLeft (150)); r1.removeFromLeft (20);
-            learnBtn.setBounds (r1.removeFromLeft (90));
             humStatus.setBounds (r2.removeFromLeft (250)); r2.removeFromLeft (10);
             noiseSampleBtn.setBounds (r2.removeFromRight (170)); r2.removeFromRight (10);
-            learnStatus.setBounds (r2);
         }
 
         board.setBounds (r.removeFromTop (195)); r.removeFromTop (8);
@@ -208,14 +215,70 @@ private:
         P.bright = q.bright; brightBtn.setToggleState (q.bright, juce::dontSendNotification); P.sat = false; satBtn.setToggleState (false, juce::dontSendNotification);
         setModel (q.model);
         P.cab = q.cab; P.mic = q.mic; cabView.setState (P.cab, P.micType, P.mic, P.micDist);
-        loading = false; voicing = i; tabs.setSelected (i); repaint (ampBox); pushParams();
+        loading = false; voicing = i; tabs.setSelected (i); applyTheme(); repaint (ampBox); pushParams();
     }
     void stepVoicing (int d)
     {
-        const int next = voicing < 0 ? (d > 0 ? 0 : NumPresets - 1) : (voicing + d + NumPresets) % NumPresets;
+        const int next = (voicing + d + NumPresets) % NumPresets;
         applyPreset (next);
     }
-    void markCustom() { if (! loading && voicing != -1) { voicing = -1; tabs.setSelected (-1); repaint (ampBox); } }
+    void markCustom() {}   // tweaking a knob keeps the selected amp (tab, tweed and knobs stay as they are)
+    static juce::Font themeFont (int t)
+    {
+        switch (t)
+        {
+            case 1:  return juce::Font (juce::FontOptions (13.f, juce::Font::bold | juce::Font::italic));
+            case 2:  return juce::Font (juce::FontOptions (juce::Font::getDefaultSerifFontName(), 14.f, juce::Font::bold));
+            case 3:  return juce::Font (juce::FontOptions (juce::Font::getDefaultSerifFontName(), 14.f, juce::Font::bold | juce::Font::italic));
+            case 4:  return juce::Font (juce::FontOptions (juce::Font::getDefaultMonospacedFontName(), 12.f, juce::Font::bold));
+            case 5:  return juce::Font (juce::FontOptions (juce::Font::getDefaultSerifFontName(), 13.f, juce::Font::bold)).withExtraKerningFactor (0.14f);
+            default: return juce::Font (juce::FontOptions (13.f, juce::Font::bold));
+        }
+    }
+    int theme() const { return juce::jlimit (0, 5, voicing); }
+    void applyTheme() { for (auto* k : { &kGain, &kVol, &kTreb, &kMid, &kBass }) k->setTheme (theme(), themeFont (theme())); repaint(); }
+
+    // ---------- quick-recall memories ----------
+    void captureTo (juce::PropertySet& s)
+    {
+        s.setValue ("gainK2", P.gain); s.setValue ("volK2", P.outVol); s.setValue ("treb", P.treb); s.setValue ("mid", P.mid); s.setValue ("bass", P.bass); s.setValue ("rev", P.rev);
+        s.setValue ("bright", P.bright); s.setValue ("sat", P.sat);
+        s.setValue ("cab", P.cab); s.setValue ("mic", P.mic); s.setValue ("micType", P.micType); s.setValue ("micDist", P.micDist); s.setValue ("humOn", P.humOn); s.setValue ("humHz", P.humHz); s.setValue ("humAmt", P.humAmt);
+        s.setValue ("gateOn", P.gateOn); s.setValue ("gateThr", P.gateThr); s.setValue ("gain", gainSl.getValue()); s.setValue ("chan", chanBox.getSelectedId());
+        s.setValue ("bpm", bpmSl.getValue()); s.setValue ("comp", compSl.getValue()); s.setValue ("click", clickSl.getValue());
+        s.setValue ("voicing2", voicing); s.setValue ("ampModel", P.model); s.setValue ("noiseOpen2", noiseOpen);
+        s.setValue ("cmpOn", P.cmpOn); s.setValue ("cmpSustain", P.cmpSustain); s.setValue ("cmpAttack", P.cmpAttack); s.setValue ("cmpLevel", P.cmpLevel); s.setValue ("cmpRelease", P.cmpRelease);
+        s.setValue ("drvOn", P.drvOn); s.setValue ("drvDrive", P.drvDrive); s.setValue ("drvTone", P.drvTone); s.setValue ("drvLevel", P.drvLevel);
+        s.setValue ("dlyOn", P.dlyOn); s.setValue ("dlyTime", P.dlyTime); s.setValue ("dlyFb", P.dlyFb); s.setValue ("dlyMix", P.dlyMix); s.setValue ("dlyTone", P.dlyTone); s.setValue ("dlyType", P.dlyType);
+        s.setValue ("choOn", P.choOn); s.setValue ("choRate", P.choRate); s.setValue ("choDepth", P.choDepth); s.setValue ("choMix", P.choMix);
+        { juce::String o; for (int i = 0; i < 5; ++i) o << board.ord[(size_t) i]; s.setValue ("pedalOrder", o); }
+        s.setValue ("rvbOn", P.rvbOn); s.setValue ("rvbSize", P.rvbSize); s.setValue ("rvbTone", P.rvbTone); s.setValue ("rvbMix", P.rvbMix); s.setValue ("rvbType", P.rvbType);
+    }
+    void saveSlot (int i)
+    {
+        juce::PropertySet ps; captureTo (ps);
+        for (auto* k : { "gain", "chan", "bpm", "comp", "click", "noiseOpen2" }) ps.removeValue (k);   // input level, channel, tempo, noise panel are not part of a sound
+        if (auto x = ps.createXml ("S")) slotData[i] = x->toString (juce::XmlElement::TextFormat().singleLine());
+        refreshSlots (i, "SAVED " + juce::String (i + 1));
+    }
+    void recallSlot (int i)
+    {
+        if (i < 0 || i >= 6 || slotData[i].isEmpty()) return;
+        auto x = juce::parseXML (slotData[i]); if (x == nullptr) return;
+        juce::PropertySet ps; ps.restoreFromXml (*x); loadFrom (&ps, false);
+        refreshSlots (i, "MEMORY " + juce::String (i + 1));
+    }
+    void slotMenu (int i)
+    {
+        juce::PopupMenu mn; mn.addItem (1, "Save the current sound in memory " + juce::String (i + 1)); mn.addItem (2, "Clear this memory", slotData[i].isNotEmpty());
+        mn.showMenuAsync (juce::PopupMenu::Options(), [this, sp = SafePointer<MainComponent> (this), i] (int r) { if (sp == nullptr) return; if (r == 1) saveSlot (i); else if (r == 2) { slotData[i] = {}; refreshSlots (-1, "CLEARED " + juce::String (i + 1)); } });
+    }
+    void refreshSlots (int active, const juce::String& msg)
+    {
+        for (int k = 0; k < 6; ++k) { slotBtn[k].filled = slotData[k].isNotEmpty(); slotBtn[k].current = (k == active); slotBtn[k].repaint(); }
+        memMsg = msg; repaint (0, 0, getWidth(), 46);
+        juce::Timer::callAfterDelay (2500, [sp = SafePointer<MainComponent> (this)] { if (sp != nullptr) { sp->memMsg.clear(); for (auto& b : sp->slotBtn) { b.current = false; b.repaint(); } sp->repaint (0, 0, sp->getWidth(), 46); } });
+    }
 
     // ---------- state ----------
     altui::AltLook look;
@@ -224,7 +287,8 @@ private:
     alt::RigAudio rig;
     alt::Params P;
     juce::Rectangle<int> ampBox, plate, noiseBox, recBox, bpmFlash;
-    int beatLit = 0; bool beatAccent = false; int voicing = -1;
+    int beatLit = 0; bool beatAccent = false; int voicing = 0;
+    altui::SlotButton slotBtn[6]; juce::String slotData[6], memMsg; juce::Rectangle<int> memRect;
     std::vector<juce::int64> taps;
     std::unique_ptr<juce::FileChooser> chooser;
     int lastLearnDone = 0, lastState = 0, shownChannels = -1;
@@ -242,7 +306,7 @@ private:
     juce::TextButton noiseSampleBtn { "Save noise sample" }, tunerBtn { "Tuner" };
     altui::TunerPanel tunerPanel;
     juce::TextButton humBtn { "De-hum" }; juce::ComboBox humHzBox; juce::Label humAmtLbl { {}, "Amount" }; juce::Slider humAmtSl { juce::Slider::LinearHorizontal, juce::Slider::NoTextBox };
-    juce::Label humStatus, gateLbl { {}, "Thr" }, learnStatus; juce::TextButton gateBtn { "Gate" }, learnBtn { "Learn" }; juce::Slider gateSl { juce::Slider::LinearHorizontal, juce::Slider::NoTextBox };
+    juce::Label humStatus;
     altui::PedalBoard board;
     juce::TextButton playBtn { "Play" }, recBtn { "Record" }, stopBtn { "Stop" }, metBtn { "Metronome" }, countBtn { "Count-in" }, tapBtn { "Tap" }, compAuto { "Auto" };
     juce::Label timeLbl, statusLbl, bpmLbl, clickLbl { {}, "Click" }, compLbl;
@@ -275,6 +339,7 @@ private:
     void pedalsChanged()
     {
         auto& c = board.comp; auto& d = board.drive; auto& l = board.delay; auto& v = board.reverb;
+        P.gateOn = board.gate.foot.getToggleState(); P.gateThr = -90.0 + 7.0 * board.gate.knobs[0]->s.getValue();
         P.cmpOn = c.foot.getToggleState(); P.cmpSustain = c.knobs[0]->s.getValue(); P.cmpAttack = c.knobs[1]->s.getValue(); P.cmpRelease = c.knobs[2]->s.getValue(); P.cmpLevel = c.knobs[3]->s.getValue();
         P.drvOn = d.foot.getToggleState(); P.drvDrive = d.knobs[0]->s.getValue(); P.drvTone = d.knobs[1]->s.getValue(); P.drvLevel = d.knobs[2]->s.getValue();
         P.dlyOn = l.foot.getToggleState(); P.dlyTime = l.knobs[0]->s.getValue(); P.dlyFb = l.knobs[1]->s.getValue(); P.dlyMix = l.knobs[2]->s.getValue(); P.dlyTone = l.knobs[3]->s.getValue(); P.dlyType = l.typeIdx;
@@ -288,11 +353,11 @@ private:
     {
         for (auto* c : std::initializer_list<juce::Component*> { &audioBtn, &driverBox, &bufferBox, &chanBox, &gainLbl, &gainSl, &meterIn, &meterOut, &latencyLbl, &tabs,
                                                                   &kGain, &kVol, &kTreb, &kMid, &kBass, &mixBtn,
-                                                                  &brightBtn, &satBtn, &noiseHeader, &humBtn, &humHzBox, &humAmtLbl, &humAmtSl, &humStatus, &gateBtn, &gateLbl, &gateSl,
-                                                                  &learnBtn, &learnStatus, &noiseSampleBtn, &tunerBtn, &board, &playBtn, &recBtn, &stopBtn, &metBtn, &countBtn, &tapBtn, &compAuto, &timeLbl, &statusLbl, &bpmLbl, &bpmSl,
+                                                                  &brightBtn, &satBtn, &noiseHeader, &humBtn, &humHzBox, &humAmtLbl, &humAmtSl, &humStatus,
+                                                                  &noiseSampleBtn, &tunerBtn, &board, &playBtn, &recBtn, &stopBtn, &metBtn, &countBtn, &tapBtn, &compAuto, &timeLbl, &statusLbl, &bpmLbl, &bpmSl,
                                                                   &clickLbl, &clickSl, &compLbl, &compSl, &beatsBox })
             addAndMakeVisible (c);
-        for (auto* l : { &gainLbl, &humAmtLbl, &gateLbl, &clickLbl, &compLbl, &bpmLbl, &latencyLbl, &humStatus, &learnStatus, &statusLbl }) styleLabel (*l);
+        for (auto* l : { &gainLbl, &humAmtLbl, &clickLbl, &compLbl, &bpmLbl, &latencyLbl, &humStatus, &statusLbl }) styleLabel (*l);
         styleLabel (timeLbl, 20.f, altui::cAmber, juce::Justification::centredLeft); timeLbl.setFont (juce::Font (juce::FontOptions (22.f, juce::Font::bold)));
         timeLbl.setText ("0:00.0", juce::dontSendNotification);
 
@@ -347,15 +412,20 @@ private:
         humHzBox.onChange = [this] { P.humHz = humHzBox.getSelectedId() == 2 ? 50 : 60; if (! loading) pushParams(); };
         humAmtSl.setRange (0, 10, 0.1); humAmtSl.setValue (10, juce::dontSendNotification); humAmtSl.setDoubleClickReturnValue (true, 10);
         humAmtSl.onValueChange = [this] { P.humAmt = humAmtSl.getValue(); if (! loading) pushParams(); }; humAmtSl.setTitle ("De-hum amount");
-        toggle (gateBtn, true, [this] { P.gateOn = gateBtn.getToggleState(); });
-        gateSl.setRange (-90, -20, 1); gateSl.setValue (-58, juce::dontSendNotification); gateSl.setDoubleClickReturnValue (true, -58);
-        gateSl.onValueChange = [this] { P.gateThr = gateSl.getValue(); if (! loading) pushParams(); }; gateSl.setTitle ("Gate threshold");
-        learnBtn.onClick = [this] { learnStatus.setText ("Mute the strings...", juce::dontSendNotification); rig.requestLearn(); };
+        // noise gate: a white pedal, always first in the chain
+        board.gate.add ("THRESHOLD", (-58 + 90) / 7.0); board.gate.foot.setToggleState (true, juce::dontSendNotification);
+        board.gate.knobs[0]->s.textFromValueFunction = [] (double v) { return juce::String (juce::roundToInt (-90.0 + 7.0 * v)) + " dB"; };
+        board.gate.addAction ("LEARN"); board.gate.action.setTooltip ("Measures the noise for 2 seconds with the strings muted and sets the gate for you");
+        board.gate.action.onClick = [this] { board.gate.setStatus ("Mute strings..."); rig.requestLearn(); };
+        board.gate.onChange = [this] { pedalsChanged(); };
+        for (auto& sb : slotBtn) { const int idx = (int) (&sb - slotBtn); addAndMakeVisible (sb); sb.setButtonText (juce::String (idx + 1));
+            sb.onClick = [this, idx] { if (juce::ModifierKeys::currentModifiers.isShiftDown() || slotData[idx].isEmpty()) saveSlot (idx); else recallSlot (idx); };
+            sb.onRight = [this, idx] { slotMenu (idx); };
+            sb.setTooltip ("Memory " + juce::String (idx + 1) + ": click to recall, or to save when empty. Right-click or Shift+click to save the current sound here. Key " + juce::String (idx + 1) + " recalls it."); }
         noiseSampleBtn.onClick = [this] { startNoiseSample(); };
         noiseSampleBtn.setTooltip ("Records 5 seconds of your raw guitar signal (play nothing, strings muted) and saves it so it can be sent for analysis");
         tunerBtn.onClick = [this] { setTuner (true); };
         tunerPanel.closeBtn.onClick = [this] { setTuner (false); }; addChildComponent (tunerPanel);
-        learnBtn.setTooltip ("Measures the noise for 2 seconds with the strings muted and sets the gate for you");
 
         // pedals
         board.comp.add ("SUSTAIN", 5); board.comp.add ("ATTACK", 4); board.comp.add ("RELEASE", 5); board.comp.add ("LEVEL", 5);
@@ -628,13 +698,13 @@ private:
             lastLearnDone = ld;
             if (e.learnOk.load())
             {
-                gateSl.setValue (std::round (e.learnThr.load()));
-                learnStatus.setText ("Noise floor " + juce::String (e.learnLevel.load(), 0) + " dB - gate set", juce::dontSendNotification);
+                board.gate.knobs[0]->s.setValue ((std::round (e.learnThr.load()) + 90.0) / 7.0);
+                board.gate.setStatus ("Floor " + juce::String (e.learnLevel.load(), 0) + " dB - set");
                 if (e.learnMains.load()) { humHzBox.setSelectedId (e.humHzOut.load() < 55.f ? 2 : 1); }
             }
-            else learnStatus.setText ("Too loud to learn - mute the strings and try again", juce::dontSendNotification);
+            else board.gate.setStatus ("Too loud - mute strings");
         }
-        else if (e.learning.load()) learnStatus.setText ("Learning... keep the strings muted", juce::dontSendNotification);
+        else if (e.learning.load()) board.gate.setStatus ("Learning...");
     }
 
     // ---------- settings ----------
@@ -654,35 +724,48 @@ private:
         s->setValue ("choOn", P.choOn); s->setValue ("choRate", P.choRate); s->setValue ("choDepth", P.choDepth); s->setValue ("choMix", P.choMix);
         { juce::String o; for (int i = 0; i < 5; ++i) o << board.ord[(size_t) i]; s->setValue ("pedalOrder", o); }
         s->setValue ("rvbOn", P.rvbOn); s->setValue ("rvbSize", P.rvbSize); s->setValue ("rvbTone", P.rvbTone); s->setValue ("rvbMix", P.rvbMix); s->setValue ("rvbType", P.rvbType);
+        for (int i = 0; i < 6; ++i) s->setValue ("slot" + juce::String (i), slotData[i]);
         s->saveIfNeeded();
     }
     void loadSettings()
     {
         auto* s = props.getUserSettings(); if (s == nullptr) return;
+        for (int i = 0; i < 6; ++i) slotData[i] = s->getValue ("slot" + juce::String (i), {});
+        loadFrom (s, true);
+        refreshSlots (-1, {});
+    }
+    void loadFrom (juce::PropertySet* s, bool startup)
+    {
         loading = true;
+        const auto sy = juce::sendNotificationSync;
         auto d = [s] (const char* k, double def) { return s->getDoubleValue (k, def); };
-        kGain.s.setValue (d ("gainK2", 6)); kVol.s.setValue (d ("volK2", 6)); kTreb.s.setValue (d ("treb", 6)); kMid.s.setValue (d ("mid", 4)); kBass.s.setValue (d ("bass", 4));
+        kGain.s.setValue (d ("gainK2", 6), sy); kVol.s.setValue (d ("volK2", 6), sy); kTreb.s.setValue (d ("treb", 6), sy); kMid.s.setValue (d ("mid", 4), sy); kBass.s.setValue (d ("bass", 4), sy);
         brightBtn.setToggleState (s->getBoolValue ("bright", true), juce::dontSendNotification); satBtn.setToggleState (s->getBoolValue ("sat", false), juce::dontSendNotification);
         P.cab = juce::jlimit (0, 2, s->getIntValue ("cab", 1)); P.mic = d ("mic", 5); P.micType = juce::jlimit (0, 4, s->getIntValue ("micType", 0)); P.micDist = d ("micDist", 3); cabView.setState (P.cab, P.micType, P.mic, P.micDist);
         humBtn.setToggleState (s->getBoolValue ("humOn", true), juce::dontSendNotification); humHzBox.setSelectedId (s->getIntValue ("humHz", 60) == 50 ? 2 : 1, juce::dontSendNotification);
-        humAmtSl.setValue (d ("humAmt", 10)); gateBtn.setToggleState (s->getBoolValue ("gateOn", true), juce::dontSendNotification); gateSl.setValue (d ("gateThr", -58));
-        gainSl.setValue (d ("gain", 0)); bpmSl.setValue (d ("bpm", 100)); compSl.setValue (d ("comp", 0)); clickSl.setValue (d ("click", 0.5));
-        { auto& cp = board.comp; cp.foot.setToggleState (s->getBoolValue ("cmpOn", false), juce::dontSendNotification); cp.knobs[0]->s.setValue (d ("cmpSustain", 5)); cp.knobs[1]->s.setValue (d ("cmpAttack", 4)); cp.knobs[2]->s.setValue (d ("cmpRelease", 5)); cp.knobs[3]->s.setValue (d ("cmpLevel", 5)); }
-        { auto& ch = board.chorus; ch.foot.setToggleState (s->getBoolValue ("choOn", false), juce::dontSendNotification); ch.knobs[0]->s.setValue (d ("choRate", 4)); ch.knobs[1]->s.setValue (d ("choDepth", 5)); ch.knobs[2]->s.setValue (d ("choMix", 5)); }
+        humAmtSl.setValue (d ("humAmt", 10), sy); board.gate.foot.setToggleState (s->getBoolValue ("gateOn", true), juce::dontSendNotification); board.gate.knobs[0]->s.setValue ((d ("gateThr", -58) + 90.0) / 7.0, sy);
+        if (startup) { gainSl.setValue (d ("gain", 0), sy); bpmSl.setValue (d ("bpm", 100), sy); compSl.setValue (d ("comp", 0), sy); clickSl.setValue (d ("click", 0.5), sy); }
+        { auto& cp = board.comp; cp.foot.setToggleState (s->getBoolValue ("cmpOn", false), juce::dontSendNotification); cp.knobs[0]->s.setValue (d ("cmpSustain", 5), sy); cp.knobs[1]->s.setValue (d ("cmpAttack", 4), sy); cp.knobs[2]->s.setValue (d ("cmpRelease", 5), sy); cp.knobs[3]->s.setValue (d ("cmpLevel", 5), sy); }
+        { auto& ch = board.chorus; ch.foot.setToggleState (s->getBoolValue ("choOn", false), juce::dontSendNotification); ch.knobs[0]->s.setValue (d ("choRate", 4), sy); ch.knobs[1]->s.setValue (d ("choDepth", 5), sy); ch.knobs[2]->s.setValue (d ("choMix", 5), sy); }
         { const auto o = s->getValue ("pedalOrder", "01234"); bool okOrd = o.length() == 5; int seen = 0; for (int i = 0; okOrd && i < 5; ++i) { const int v = o[i] - '0'; if (v < 0 || v > 4 || (seen & (1 << v))) okOrd = false; else seen |= 1 << v; }
           if (okOrd) for (int i = 0; i < 5; ++i) board.ord[(size_t) i] = o[i] - '0'; board.layoutPedals(); }
         auto& dv = board.drive; auto& dl = board.delay; auto& rv = board.reverb;
-        dv.foot.setToggleState (s->getBoolValue ("drvOn", false), juce::dontSendNotification); dv.knobs[0]->s.setValue (d ("drvDrive", 5)); dv.knobs[1]->s.setValue (d ("drvTone", 5)); dv.knobs[2]->s.setValue (d ("drvLevel", 5));
-        dl.foot.setToggleState (s->getBoolValue ("dlyOn", false), juce::dontSendNotification); dl.knobs[0]->s.setValue (d ("dlyTime", 4)); dl.knobs[1]->s.setValue (d ("dlyFb", 3)); dl.knobs[2]->s.setValue (d ("dlyMix", 3)); dl.knobs[3]->s.setValue (d ("dlyTone", 5)); dl.typeIdx = juce::jlimit (0, 3, s->getIntValue ("dlyType", 1));
-        rv.foot.setToggleState (s->getBoolValue ("rvbOn", false), juce::dontSendNotification); rv.knobs[0]->s.setValue (d ("rvbSize", 4)); rv.knobs[1]->s.setValue (d ("rvbTone", 5)); rv.knobs[2]->s.setValue (d ("rvbMix", 3)); rv.typeIdx = juce::jlimit (0, 3, s->getIntValue ("rvbType", 0));
-        noiseOpen = s->getBoolValue ("noiseOpen2", false); noiseHeader.open = noiseOpen;
-        rebuildChannels(); if (s->getIntValue ("chan", 0) > 0 && s->getIntValue ("chan", 0) <= chanBox.getNumItems() + 1) chanBox.setSelectedId (s->getIntValue ("chan", 1), juce::dontSendNotification);
-        P.bright = brightBtn.getToggleState(); P.sat = satBtn.getToggleState(); P.humOn = humBtn.getToggleState(); P.gateOn = gateBtn.getToggleState();
+        dv.foot.setToggleState (s->getBoolValue ("drvOn", false), juce::dontSendNotification); dv.knobs[0]->s.setValue (d ("drvDrive", 5), sy); dv.knobs[1]->s.setValue (d ("drvTone", 5), sy); dv.knobs[2]->s.setValue (d ("drvLevel", 5), sy);
+        dl.foot.setToggleState (s->getBoolValue ("dlyOn", false), juce::dontSendNotification); dl.knobs[0]->s.setValue (d ("dlyTime", 4), sy); dl.knobs[1]->s.setValue (d ("dlyFb", 3), sy); dl.knobs[2]->s.setValue (d ("dlyMix", 3), sy); dl.knobs[3]->s.setValue (d ("dlyTone", 5), sy); dl.typeIdx = juce::jlimit (0, 3, s->getIntValue ("dlyType", 1));
+        rv.foot.setToggleState (s->getBoolValue ("rvbOn", false), juce::dontSendNotification); rv.knobs[0]->s.setValue (d ("rvbSize", 4), sy); rv.knobs[1]->s.setValue (d ("rvbTone", 5), sy); rv.knobs[2]->s.setValue (d ("rvbMix", 3), sy); rv.typeIdx = juce::jlimit (0, 3, s->getIntValue ("rvbType", 0));
+        if (startup)
+        {
+            noiseOpen = s->getBoolValue ("noiseOpen2", false); noiseHeader.open = noiseOpen;
+            rebuildChannels(); if (s->getIntValue ("chan", 0) > 0 && s->getIntValue ("chan", 0) <= chanBox.getNumItems() + 1) chanBox.setSelectedId (s->getIntValue ("chan", 1), juce::dontSendNotification);
+        }
+        P.bright = brightBtn.getToggleState(); P.sat = satBtn.getToggleState(); P.humOn = humBtn.getToggleState(); P.gateOn = board.gate.foot.getToggleState();
         P.humHz = humHzBox.getSelectedId() == 2 ? 50 : 60;
         pedalsChanged();
-        setModel (juce::jlimit (0, 3, s->getIntValue ("ampModel", 0))); voicing = s->getIntValue ("voicing2", -1); if (voicing < 0 || voicing >= NumPresets) voicing = -1; tabs.setSelected (voicing);
+        setModel (juce::jlimit (0, 3, s->getIntValue ("ampModel", 0))); voicing = s->getIntValue ("voicing2", -1);
+        if (voicing < 0 || voicing >= NumPresets) voicing = (P.model == 1 ? 3 : P.model == 2 ? 4 : P.model == 3 ? 5 : 0);   // older settings had "custom": pick the amp by its model
+        tabs.setSelected (voicing); applyTheme();
         loading = false;
-        updateComp(); resized();
+        updateComp(); resized(); pushParams();
     }
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MainComponent)
