@@ -8,19 +8,22 @@ namespace altui
 struct Skin { juce::Colour base, thread, cream; float lacquer; };
 inline const Skin& skinFor (int i)
 {
-    static const Skin s[4] = {
+    static const Skin s[7] = {
         { juce::Colour (0xffd2a85c), juce::Colour (0xff6d4620), juce::Colour (0xffeed9a2), 0.28f },   // 0 amber lacquered tweed
         { juce::Colour (0xff6f7b88), juce::Colour (0xff1c232c), juce::Colour (0xffc6d0da), 0.10f },   // 1 cool blue-grey sparkle
         { juce::Colour (0xff8e4a3c), juce::Colour (0xff341611), juce::Colour (0xffd9a58e), 0.18f },   // 2 oxblood
-        { juce::Colour (0xffd2a85c), juce::Colour (0xff6d4620), juce::Colour (0xffeed9a2), 0.28f } }; // custom: same as amber
-    return s[juce::jlimit (0, 3, i)];
+        { juce::Colour (0xff7f8a56), juce::Colour (0xff2a3114), juce::Colour (0xffd4dcae), 0.20f },   // 3 Blues Junior: olive tweed
+        { juce::Colour (0xff2c2c30), juce::Colour (0xff0b0b0d), juce::Colour (0xff5a5a62), 0.04f },   // 4 Lead Stack: black tolex
+        { juce::Colour (0xff3f5b57), juce::Colour (0xff10201e), juce::Colour (0xffa9c8c2), 0.12f },   // 5 British Classic: deep teal
+        { juce::Colour (0xffd2a85c), juce::Colour (0xff6d4620), juce::Colour (0xffeed9a2), 0.28f } }; // 6 custom: same as amber
+    return s[juce::jlimit (0, 6, i)];
 }
 
 // 96x96 tile: vertical thread pairs, twill weave between them, fine speckle
 inline const juce::Image& tweedTile (int skin)
 {
-    static juce::Image tiles[4];
-    juce::Image& t = tiles[juce::jlimit (0, 3, skin)];
+    static juce::Image tiles[7];
+    juce::Image& t = tiles[juce::jlimit (0, 6, skin)];
     if (! t.isValid())
     {
         const Skin& k = skinFor (skin);

@@ -78,7 +78,7 @@ public:
         g.setColour (juce::Colour (0xff4a3a24)); g.fillRect (0, 45, getWidth(), 1);
 
         // amp: covered cabinet (tint follows the voicing) with a dark control plate
-        altui::fillTweed (g, ampBox.toFloat(), 10.f, voicing < 0 ? 3 : voicing);
+        altui::fillTweed (g, ampBox.toFloat(), 10.f, voicing < 0 ? 6 : voicing);
         altui::drawPlate (g, plate.toFloat());
         for (float rx : { plate.getX() + 9.f, plate.getRight() - 9.f }) for (float ry : { plate.getY() + 9.f, plate.getBottom() - 9.f }) altui::drawRivet (g, rx, ry);
         // signature, slightly tilted, where the power lamp would be
@@ -183,23 +183,29 @@ public:
 
 private:
     // ---------- voicings ----------
-    struct Preset { const char* name; double gain, vol, treb, mid, bass, rev, trs, tri; bool bright; int cab; double mic; };
+    struct Preset { const char* name; double gain, vol, treb, mid, bass, rev, trs, tri; bool bright; int cab; double mic; int model; };
     static const Preset* presets()
     {
         static const Preset p[] = {
-            { "Fender Crunch", 5, 10,  3,   6,   6,   2,   5,   0, false, 1, 2 },
-            { "Twin Sparkle",  5, 4,   5,   5,   4,   2.5, 5,   0, true,  0, 5 },
-            { "Warm Jazz",     5, 3.5, 2.5, 6,   5.5, 2,   5,   0, false, 1, 4 } };
+            { "Fender Crunch", 5, 10,  3,   6,   6,   2,   5,   0, false, 1, 2, 0 },
+            { "Twin Sparkle",  5, 4,   5,   5,   4,   2.5, 5,   0, true,  0, 5, 0 },
+            { "Warm Jazz",     5, 3.5, 2.5, 6,   5.5, 2,   5,   0, false, 1, 4, 0 },
+            { "Blues Junior",  5, 4.5, 5,   5,   5,   0,   5,   0, false, 1, 3, 1 },
+            { "Lead Stack",    6, 4.5, 6,   6.5, 4,   0,   5,   0, false, 2, 3, 2 },
+            { "British Classic", 4, 5, 6,   3,   5,   0,   5,   0, true,  0, 3, 3 } };
         return p;
     }
-    static constexpr int NumPresets = 3;
+    static constexpr int NumPresets = 6;
+    void setModel (int mdl) { P.model = mdl; kMid.name.setText (mdl == 3 ? "CUT" : "MIDDLE", juce::dontSendNotification); }
 
     void applyPreset (int i)
     {
         if (i < 0 || i >= NumPresets) return;
         const auto& q = presets()[i]; loading = true;
-        kGain.s.setValue (q.gain); kVol.s.setValue (q.vol); kTreb.s.setValue (q.treb); kMid.s.setValue (q.mid); kBass.s.setValue (q.bass);
+        const auto sy = juce::sendNotificationSync;   // synchronous, so these changes do not count as hand edits (which would drop the selected tab)
+        kGain.s.setValue (q.gain, sy); kVol.s.setValue (q.vol, sy); kTreb.s.setValue (q.treb, sy); kMid.s.setValue (q.mid, sy); kBass.s.setValue (q.bass, sy);
         P.bright = q.bright; brightBtn.setToggleState (q.bright, juce::dontSendNotification); P.sat = false; satBtn.setToggleState (false, juce::dontSendNotification);
+        setModel (q.model);
         P.cab = q.cab; P.mic = q.mic; cabView.setState (P.cab, P.micType, P.mic, P.micDist);
         loading = false; voicing = i; tabs.setSelected (i); repaint (ampBox); pushParams();
     }
@@ -638,7 +644,7 @@ private:
         s->setValue ("cab", P.cab); s->setValue ("mic", P.mic); s->setValue ("micType", P.micType); s->setValue ("micDist", P.micDist); s->setValue ("humOn", P.humOn); s->setValue ("humHz", P.humHz); s->setValue ("humAmt", P.humAmt);
         s->setValue ("gateOn", P.gateOn); s->setValue ("gateThr", P.gateThr); s->setValue ("gain", gainSl.getValue()); s->setValue ("chan", chanBox.getSelectedId());
         s->setValue ("bpm", bpmSl.getValue()); s->setValue ("comp", compSl.getValue()); s->setValue ("click", clickSl.getValue());
-        s->setValue ("voicing2", voicing); s->setValue ("noiseOpen2", noiseOpen);
+        s->setValue ("voicing2", voicing); s->setValue ("ampModel", P.model); s->setValue ("noiseOpen2", noiseOpen);
         s->setValue ("cmpOn", P.cmpOn); s->setValue ("cmpSustain", P.cmpSustain); s->setValue ("cmpAttack", P.cmpAttack); s->setValue ("cmpLevel", P.cmpLevel);
         s->setValue ("drvOn", P.drvOn); s->setValue ("drvDrive", P.drvDrive); s->setValue ("drvTone", P.drvTone); s->setValue ("drvLevel", P.drvLevel);
         s->setValue ("dlyOn", P.dlyOn); s->setValue ("dlyTime", P.dlyTime); s->setValue ("dlyFb", P.dlyFb); s->setValue ("dlyMix", P.dlyMix);
@@ -671,7 +677,7 @@ private:
         P.bright = brightBtn.getToggleState(); P.sat = satBtn.getToggleState(); P.humOn = humBtn.getToggleState(); P.gateOn = gateBtn.getToggleState();
         P.humHz = humHzBox.getSelectedId() == 2 ? 50 : 60;
         pedalsChanged();
-        voicing = s->getIntValue ("voicing2", -1); if (voicing < 0 || voicing >= NumPresets) voicing = -1; tabs.setSelected (voicing);
+        setModel (juce::jlimit (0, 3, s->getIntValue ("ampModel", 0))); voicing = s->getIntValue ("voicing2", -1); if (voicing < 0 || voicing >= NumPresets) voicing = -1; tabs.setSelected (voicing);
         loading = false;
         updateComp(); resized();
     }

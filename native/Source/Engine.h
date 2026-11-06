@@ -130,10 +130,30 @@ constexpr double sag = 0.55;
 constexpr double lc[5] = { -9.9, -9.9, -16.31, -21.61, -25.94 };
 }
 
-// Fender tone stack (Yeh & Smith): analog coefficients, then bilinear transform at rate fs -> o[0..7] = b0..b3, a0..a3; o[8..13] analog
-inline void tsDesign (double t, double m, double lin, double fs, double* o)
+// One amp circuit: stage headroom/gain, tone stack values, bright cap, power section. Model 0 is the original calibrated Fender-style voicing.
+struct AmpModel
 {
-    using namespace FEN;
+    double h1, h2, hp, g1, g2, b1, b2, bp;        // stage headroom, preamp gains (dB), asymmetry
+    double R1, R2, R3, R4, C1, C2, C3;            // tone stack: treble pot, bass pot, mid pot, slope resistor, treble cap, bass cap, mid cap
+    double rv, bc, sag;                           // volume pot, bright cap, supply sag
+    double lc[5];                                 // output trim (dB) at volume 0, 2.5, 5, 7.5, 10
+    double hp1, lp1, hp2, lp2, tpLP;              // interstage corners (Hz) and power stage low-pass
+    double midPot;                                // 1 = a middle control exists
+};
+static AmpModel MODELS[4] = {
+    // 0: calibrated Fender crunch / Twin / jazz voicings (values as before)
+    { 5, 3.5, 3.2, 7, 20, 0.035, 0.05, 0.012,   250e3, 250e3, 10e3, 100e3, 250e-12, 100e-9, 47e-9,   1e6, 47e-12, 0.55,   { -9.9, -9.9, -16.31, -21.61, -25.94 },   28, 16000, 24, 15000, 11000, 1 },
+    // 1: Blues Junior: service diagram values (250k/250k/25k, 100k slope, 250 pF, 22 nF, 22 nF), 15 W EL84 pair, fixed bias
+    { 5, 3.5, 2.4, 8, 22, 0.035, 0.05, 0.02,    250e3, 250e3, 25e3, 100e3, 250e-12, 22e-9, 22e-9,    1e6, 100e-12, 0.85,  { -12.43, -12.43, -18.44, -22.79, -25.87 },   28, 16000, 24, 15000, 11000, 1 },
+    // 2: Lead Stack: JCM800 2203-style (220k/1M/25k, 33k slope, 470 pF, 22 nF, 22 nF), two cascaded gain stages, 100 W EL34 with little sag
+    { 3.5, 2.5, 4.5, 20, 24, 0.04, 0.06, 0.01,  220e3, 1e6, 25e3, 33e3, 470e-12, 22e-9, 22e-9,       1e6, 120e-12, 0.25,  { -24.62, -24.62, -28.79, -30.69, -31.60 },   45, 14000, 80, 12000, 11000, 1 },
+    // 3: British Classic: AC30 Top Boost style (bass/treble only, 1 M pots), no global feedback, cathode-biased EL84 quartet, Cut control
+    { 5, 5, 3.0, 8, 17, 0.035, 0.05, 0.03,     1e6, 1e6, 1, 100e3, 100e-12, 4.7e-9, 22e-9,         500e3, 100e-12, 1.0, { -6.65, -6.65, -13.23, -19.00, -23.86 },   28, 16000, 60, 14000, 11000, 0 } };
+
+// Fender tone stack (Yeh & Smith): analog coefficients, then bilinear transform at rate fs -> o[0..7] = b0..b3, a0..a3; o[8..13] analog
+inline void tsDesign (double t, double m, double lin, double fs, double* o, const AmpModel& M = MODELS[0])
+{
+    const double R1 = M.R1, R2 = M.R2, R3 = M.R3, R4 = M.R4, C1 = M.C1, C2 = M.C2, C3 = M.C3;
     const double l = std::exp ((lin - 1) * 3.4);
     const double b1_ = t * C1 * R1 + m * C3 * R3 + l * (C1 * R2 + C2 * R2) + (C1 * R3 + C2 * R3);
     const double b2_ = t * (C1 * C2 * R1 * R4 + C1 * C3 * R1 * R4) - m * m * (C1 * C3 * R3 * R3 + C2 * C3 * R3 * R3) + m * (C1 * C3 * R1 * R3 + C1 * C3 * R3 * R3 + C2 * C3 * R3 * R3) + l * (C1 * C2 * R1 * R2 + C1 * C2 * R2 * R4 + C1 * C3 * R2 * R4) + l * m * (C1 * C3 * R2 * R3 + C2 * C3 * R2 * R3) + (C1 * C2 * R1 * R3 + C1 * C2 * R3 * R4 + C1 * C3 * R3 * R4);
@@ -335,6 +355,7 @@ struct Params
     // amp (knobs 0..10)
     double vol = 4, treb = 5, mid = 5, bass = 4, rev = 2.5, trs = 5, tri = 0;
     bool bright = true;
+    int model = 0;      // 0 Fender-style voicings, 1 Blues Junior, 2 Lead Stack, 3 British Classic
     bool sat = false;   // extra valve stage: more saturation
     // pedal order on the board: ids 0 compressor, 1 drive, 2 chorus, 3 delay, 4 reverb (left to right)
     int order[5] = { 0, 1, 2, 3, 4 };
@@ -359,7 +380,7 @@ struct Params
 struct CabVoicing { double hp, rf, rg, pf, pk, df, dg, lp; };
 static const CabVoicing CABS[3] = { { 70, 100, 2.0, 3000, 3.5, 6800, -2.0, 8200 }, { 80, 115, 2.5, 2600, 3.0, 5800, -2.5, 7400 }, { 75, 95, 3.0, 2300, 4.5, 5000, -3.5, 6800 } };
 struct MicVoicing { double f1, g1, q1, f2, g2, q2; };    // two peaking filters that give each microphone its character
-static const MicVoicing MICS[5] = { { 5500, 2.0, 1.1, 140, -1.0, 0.9 },   // dynamic, 57-style: gentle presence bump
+static const MicVoicing MICS[5] = { { 5500, 0.3, 1.1, 140, 0.0, 0.9 },    // dynamic, 57-style: nearly flat, so the original tone is kept
                                     { 4500, -3.5, 0.7, 200, 2.5, 0.8 },   // ribbon, 121-style: dark and warm
                                     { 9000, 2.5, 0.6, 3000, 1.0, 0.8 },   // large condenser: open top end
                                     { 650, -2.0, 0.9, 4000, 3.0, 1.0 },   // dynamic, 421-style: scooped mids
@@ -394,7 +415,9 @@ public:
         trPh = 0;
         spA.init (sr, 0.0343, 32, -0.60, 0.88, 3300, 0.8, 0.6, 0.0); spB.init (sr, 0.0419, 32, -0.56, 0.88, 3036, 1.1, 0.6, 2.0);
         spAct = 0; spLo = 0; spHk = 1 - std::exp (-TAU * 190 / sr); spTail = 0;
-        { double o[14]; tsDesign (0.6, 0.4, 0.4, s4, o); tsRef = tsPow (o); }
+        for (int m = 0; m < 4; ++m) { double o[14]; tsDesign (0.6, 0.4, 0.4, s4, o, MODELS[m]); tsRefs[m] = tsPow (o); }
+        for (int m = 0; m < 4; ++m) tsMkM[m] = FEN::tsMk * std::sqrt (tsRefs[0] / tsRefs[m]);
+        tsRef = tsRefs[0]; am = &MODELS[0]; modelIdx = 0;
         std::fill (std::begin (tsZ), std::end (tsZ), 0.0); brZ = 0;
         aHp[0] = aHp[1] = aLp[0] = aLp[1] = tP = tPh = Bq();
         cHp = cRes = cPk = cDip = cL1 = cL2 = cM1 = cM2 = cProx = Bq();
@@ -405,7 +428,11 @@ public:
 
     void setParams (const Params& P)
     {
+        const int mi = P.model < 0 ? 0 : (P.model > 3 ? 3 : P.model);
+        const bool modelChanged = haveP && mi != modelIdx;
+        modelIdx = mi; am = &MODELS[mi]; tsRef = tsRefs[mi];
         derive (P);
+        if (modelChanged) { fade = 0; fadeOld = 0; }
         if (! haveP) { std::copy (tgt, tgt + NP, cur); std::copy (tgt, tgt + NP, old); coefs(); fade = fadeOld = 1; cabIdx = P.cab * 16 + P.micType; haveP = true; }
         else if (P.cab * 16 + P.micType != cabIdx) { cabIdx = P.cab * 16 + P.micType; fade = 0; fadeOld = 0; }
     }
@@ -423,7 +450,7 @@ public:
     double sampleRate() const { return sr; }
 
 private:
-    enum { GateThr, GateOn, AT, AM, AL, AV, ABr, AG1, AG2, APg, ATrim, ATrR, ATrD, SpMix, ASag, CabOn, CabHP, CabRF, CabRG, CabPF, CabPG, CabDF, CabDG, CabLP, Vol, HumAmt, AGn, CoOn, CoLv, PdOn, PdLv, DlOn, DlTime, DlFb, DlMix, RvOn, RvMix, ChOn, ChRate, ChDepth, ChMix, CabM1F, CabM1G, CabM2F, CabM2G, CabProx, NP };
+    enum { GateThr, GateOn, AT, AM, AL, AV, ABr, AG1, AG2, APg, ATrim, ATrR, ATrD, SpMix, ASag, CabOn, CabHP, CabRF, CabRG, CabPF, CabPG, CabDF, CabDG, CabLP, Vol, HumAmt, AGn, CoOn, CoLv, PdOn, PdLv, DlOn, DlTime, DlFb, DlMix, RvOn, RvMix, ChOn, ChRate, ChDepth, ChMix, CabM1F, CabM1G, CabM2F, CabM2G, CabProx, TpF, NP };
     double sr = 48000, s4 = 192000;
     HB hb; Os4 osD, osA;
     double tgt[NP], cur[NP], old[NP]; bool haveP = false; int cabIdx = -1; double fade = 1, fadeOld = 1;
@@ -437,7 +464,8 @@ private:
     double gEnv = 0, gG = 1, gRel = 0, aOpen = 0, aClose = 0, lMax = 0; bool gOpen = false; int gHold = 0, gHoldN = 0, gSentv = -1, learn = 0, lLen = 0;
     double mc[8], ms[8] = {}, mrc[8] = {}, mrs[8] = {}, mxr[8] = {}, mxi[8] = {};
     // amp
-    Bq aHp[2], aLp[2], tP, tPh; double tsC[14] = {}, tsZ[3] = {}, brZ = 0, brC[3] = {}, tsRef = 1, tsCmp = 1;
+    Bq aHp[2], aLp[2], tP, tPh; double tsC[14] = {}, tsZ[3] = {}, brZ = 0, brC[3] = {}, tsRef = 1, tsCmp = 1, tsRefs[4] = { 1, 1, 1, 1 }, tsMkM[4] = { 12, 12, 12, 12 };
+    const AmpModel* am = &MODELS[0]; int modelIdx = 0;
     double sagEnv = 0, sagKa = 0, sagKr = 0, trPh = 0;
     // spring
     Spring spA, spB; double spAct = 0, spLo = 0, spHk = 0, spTail = 0;
@@ -468,10 +496,12 @@ private:
         t[AT] = clampd (P.treb, 0, 10) / 10; t[AM] = clampd (P.mid, 0, 10) / 10; t[AL] = clampd (P.bass, 0, 10) / 10;
         t[AV] = vol <= 0 ? 0 : std::pow (10.0, ((vol - 10) * 3.0) / 20) * std::pow (std::min (1.0, vol / 1.5), 2.0);
         t[ABr] = P.bright ? 1 : 0;
-        t[AG1] = dbl (FEN::g1); t[AG2] = dbl (FEN::g2) * (P.sat ? 1.7 : 1.0); t[APg] = P.sat ? 1.5 : 1.0; t[ASag] = FEN::sag;
+        t[TpF] = (am->midPot > 0.5) ? am->tpLP : am->tpLP * std::pow (0.16, clampd (P.mid, 0, 10) / 10);   // British Classic: the Middle knob becomes the Cut control
+        if (am->midPot < 0.5) t[AM] = 0.5;
+        t[AG1] = dbl (am->g1); t[AG2] = dbl (am->g2) * (P.sat ? 1.7 : 1.0); t[APg] = P.sat ? 1.5 : 1.0; t[ASag] = am->sag;
         t[ATrR] = 0.8 * std::pow (15.0, clampd (P.trs, 0, 10) / 10); t[ATrD] = P.tri <= 0 ? 0 : 0.92 * std::pow (clampd (P.tri, 0, 10) / 10, 1.1);
         t[SpMix] = P.rev <= 0 ? 0 : std::pow (clampd (P.rev, 0, 10) / 10, 1.5);
-        { const double pos = vol / 2.5; const int i0 = std::min (3, (int) std::floor (pos)); const double fr = pos - i0; t[ATrim] = dbl (lerpd (FEN::lc[i0], FEN::lc[i0 + 1], fr)) * (P.sat ? 0.5 : 1.0); }
+        { const double pos = vol / 2.5; const int i0 = std::min (3, (int) std::floor (pos)); const double fr = pos - i0; t[ATrim] = dbl (lerpd (am->lc[i0], am->lc[i0 + 1], fr)) * (P.sat ? 0.5 : 1.0); }
         const CabVoicing& c = CABS[P.cab < 0 ? 0 : (P.cab > 2 ? 2 : P.cab)]; const MicVoicing& mv = MICS[P.micType < 0 ? 0 : (P.micType > 4 ? 4 : P.micType)]; const double md = clampd (P.micDist, 0, 10) / 10; const double mic = clampd (P.mic, 0, 10) / 10;
         t[CabOn] = P.cabOn ? 1 : 0; t[CabHP] = c.hp; t[CabRF] = c.rf; t[CabRG] = c.rg;
         t[CabPF] = c.pf; t[CabPG] = c.pk + (mic - 0.5) * 4; t[CabDF] = c.df; t[CabDG] = c.dg; t[CabLP] = c.lp * (0.78 + 0.44 * mic) * (1 - 0.12 * (md - 0.3));
@@ -495,13 +525,13 @@ private:
     void coefs()
     {
         const double* c = cur;
-        aHp[0].set (BqType::HP, 28, 0.707, 0, s4); aLp[0].set (BqType::LP, 16000, 0.707, 0, s4);
-        aHp[1].set (BqType::HP, 24, 0.707, 0, s4); aLp[1].set (BqType::LP, 15000, 0.707, 0, s4);
-        tsDesign (c[AT], c[AM], c[AL], s4, tsC);
+        aHp[0].set (BqType::HP, am->hp1, 0.707, 0, s4); aLp[0].set (BqType::LP, am->lp1, 0.707, 0, s4);
+        aHp[1].set (BqType::HP, am->hp2, 0.707, 0, s4); aLp[1].set (BqType::LP, am->lp2, 0.707, 0, s4);
+        tsDesign (c[AT], c[AM], c[AL], s4, tsC, *am);
         tsCmp = std::pow (tsRef / tsPow (tsC), 0.25);
-        { const double v = c[AV], tau = (1 - v) * FEN::rv * FEN::bc * c[ABr], cc = 2 * s4, d0 = 1 + v * cc * tau;
+        { const double v = c[AV], tau = (1 - v) * am->rv * am->bc * c[ABr], cc = 2 * s4, d0 = 1 + v * cc * tau;
           brC[0] = v * (1 + cc * tau) / d0; brC[1] = v * (1 - cc * tau) / d0; brC[2] = (1 - v * cc * tau) / d0; }
-        tP.set (BqType::LP, 11000, 0.707, 0, s4); tPh.set (BqType::HP, 38, 0.707, 0, s4);
+        tP.set (BqType::LP, c[TpF], 0.707, 0, s4); tPh.set (BqType::HP, 38, 0.707, 0, s4);
         cHp.set (BqType::HP, c[CabHP], 0.707, 0, sr); cRes.set (BqType::Peak, c[CabRF], 1, c[CabRG], sr);
         cPk.set (BqType::Peak, c[CabPF], 0.9, c[CabPG], sr); cDip.set (BqType::Peak, c[CabDF], 1.4, c[CabDG], sr);
         cM1.set (BqType::Peak, c[CabM1F], mq1, c[CabM1G], sr); cM2.set (BqType::Peak, c[CabM2F], mq2, c[CabM2G], sr); cProx.set (BqType::LowShelf, 160, 0.7, c[CabProx], sr);
@@ -658,10 +688,10 @@ private:
                 }
             }
             osA.up (b1, n, u);
-            const double g1 = cur[AG1] * cur[AGn] / FEN::h1, g2 = cur[AG2] / FEN::h2;
-            stage (aHp[0], aLp[0], n4, g1, FEN::b1, FEN::h1);
+            const double g1 = cur[AG1] * cur[AGn] / am->h1, g2 = cur[AG2] / am->h2;
+            stage (aHp[0], aLp[0], n4, g1, am->b1, am->h1);
             // tone stack
-            { const double b0 = tsC[0], bb1 = tsC[1], bb2 = tsC[2], bb3 = tsC[3], a1 = tsC[5], a2 = tsC[6], a3 = tsC[7], mk = dbl (FEN::tsMk) * tsCmp;
+            { const double b0 = tsC[0], bb1 = tsC[1], bb2 = tsC[2], bb3 = tsC[3], a1 = tsC[5], a2 = tsC[6], a3 = tsC[7], mk = dbl (tsMkM[modelIdx]) * tsCmp;
               double z1 = tsZ[0], z2 = tsZ[1], z3 = tsZ[2];
               for (int i = 0; i < n4; ++i) { const double xx = u[i], y = b0 * xx + z1; z1 = bb1 * xx - a1 * y + z2; z2 = bb2 * xx - a2 * y + z3; z3 = bb3 * xx - a3 * y; u[i] = y * mk; }
               tsZ[0] = z1; tsZ[1] = z2; tsZ[2] = z3; }
@@ -669,9 +699,9 @@ private:
             { const double b0 = brC[0], bb1 = brC[1], a1 = brC[2]; double z = brZ;
               for (int i = 0; i < n4; ++i) { const double xx = u[i], y = b0 * xx + z; z = bb1 * xx - a1 * y; u[i] = y; }
               brZ = z; }
-            stage (aHp[1], aLp[1], n4, g2, FEN::b2, FEN::h2);
+            stage (aHp[1], aLp[1], n4, g2, am->b2, am->h2);
             // power stage with supply sag
-            { const double H = FEN::hp, bp = FEN::bp, tbp = ft (bp), gp = cur[APg], trim = cur[ATrim], sagK = cur[ASag]; double env = sagEnv;
+            { const double H = am->hp, bp = am->bp, tbp = ft (bp), gp = cur[APg], trim = cur[ATrim], sagK = cur[ASag]; double env = sagEnv;
               for (int i = 0; i < n4; ++i)
               {
                   double xx = u[i] * gp; if (trem) xx *= tg[i >> 2];
