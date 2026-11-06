@@ -244,26 +244,49 @@ struct DrivePedal
     }
 };
 
-// Delay with a darkened, slightly saturated feedback path and a second tap for the right side
+// Delay with four voicings: 0 mono digital, 1 stereo (second tap on the right), 2 ping-pong, 3 tape (wow and flutter, darker repeats)
 struct DelayPedal
 {
-    std::vector<double> buf; int mask = 0, w = 0; double lpv = 0, lpk = 0.3, sr = 48000;
+    std::vector<double> buf, bufR; int mask = 0, w = 0; double lpv = 0, lpv2 = 0, lpk = 0.3, sr = 48000, wph = 0, fph = 0;
     void init (double sampleRate)
     {
-        sr = sampleRate; buf.assign ((size_t) pow2i ((int) (1.4 * sr) + 8), 0.0); mask = (int) buf.size() - 1; w = 0; lpv = 0;
-        lpk = 1 - std::exp (-TAU * 3200 / sr);
+        sr = sampleRate; buf.assign ((size_t) pow2i ((int) (1.4 * sr) + 8), 0.0); bufR = buf; mask = (int) buf.size() - 1; w = 0; lpv = lpv2 = 0; wph = fph = 0;
+        setTone (5, 1);
     }
-    void clear() { std::fill (buf.begin(), buf.end(), 0.0); lpv = 0; }
-    inline double rd (double d) const
+    void clear() { std::fill (buf.begin(), buf.end(), 0.0); std::fill (bufR.begin(), bufR.end(), 0.0); lpv = lpv2 = 0; }
+    void setTone (double tone, int type)      // feedback low-pass: about 1.2 kHz .. 8 kHz, darker for tape
+    {
+        double f = 1200.0 * std::pow (6.7, clampd (tone, 0, 10) / 10); if (type == 3) f *= 0.6; if (type == 0) f *= 1.5;
+        lpk = 1 - std::exp (-TAU * std::min (f, 0.45 * sr) / sr);
+    }
+    inline double rd (const std::vector<double>& b, double d) const
     {
         const double p = (double) w - d; const double fl = std::floor (p); const double fr = p - fl; const int i = (int) fl;
-        return buf[(size_t) (i & mask)] * (1 - fr) + buf[(size_t) ((i + 1) & mask)] * fr;
+        return b[(size_t) (i & mask)] * (1 - fr) + b[(size_t) ((i + 1) & mask)] * fr;
     }
-    inline void process (double in, double dSamples, double fb, double& wl, double& wr)
+    inline void process (double in, double dSamples, double fb, int type, double& wl, double& wr)
     {
-        wl = rd (dSamples); wr = rd (dSamples * 0.62);
-        lpv += (wl - lpv) * lpk;
-        buf[(size_t) w] = ft ((in + fb * lpv) * 0.9) * 1.1; w = (w + 1) & mask;
+        if (type == 2)          // ping-pong: left repeat feeds the right line, right repeat feeds back to the left
+        {
+            wl = rd (buf, dSamples); wr = rd (bufR, dSamples);
+            lpv += (wr - lpv) * lpk;
+            buf[(size_t) w] = ft ((in + fb * lpv) * 0.9) * 1.1; bufR[(size_t) w] = wl;
+        }
+        else if (type == 3)     // tape: slow wobble plus a little flutter on the read head, tape-style saturation in the loop
+        {
+            wph += TAU * 0.55 / sr; fph += TAU * 6.3 / sr; if (wph > TAU) wph -= TAU; if (fph > TAU) fph -= TAU;
+            const double d = dSamples + sr * 0.0004 * (std::sin (wph) + 0.25 * std::sin (fph));
+            wl = rd (buf, d); wr = rd (buf, d * 0.5 + sr * 0.0003 * std::sin (wph * 1.3));
+            lpv += (wl - lpv) * lpk; lpv2 += (lpv - lpv2) * lpk;
+            buf[(size_t) w] = ft ((in + fb * lpv2) * 1.1) * 0.95;
+        }
+        else
+        {
+            wl = rd (buf, dSamples); wr = type == 1 ? rd (buf, dSamples * 0.62) : wl;
+            lpv += (wl - lpv) * lpk;
+            buf[(size_t) w] = ft ((in + fb * lpv) * 0.9) * 1.1;
+        }
+        w = (w + 1) & mask;
     }
 };
 
@@ -273,30 +296,32 @@ struct ReverbPedal
 {
     static constexpr int N = 8, NA = 4;
     std::vector<double> d[N], ap[NA], pre; int len[N] = {}, wp[N] = {}, apLen[NA] = {}, apW[NA] = {}, preLen = 1, preW = 0, mask[N] = {};
-    double lp[N] = {}, g[N] = {}, ph[N] = {}, inc[N] = {}, outScale = 5.5, depth = 0, dk = 0.3, sr = 48000, hpz = 0, hpk = 0.01;
-    void init (double sampleRate)
+    double apG = 0, lp[N] = {}, g[N] = {}, ph[N] = {}, inc[N] = {}, outScale = 5.5, depth = 0, dk = 0.3, sr = 48000, hpz = 0, hpk = 0.01;
+    double toneLo = 1800, toneSpan = 4;
+    void init (double sampleRate, double lenScale = 1.0, double preMs = 12.0, double apBoost = 0.0, double tLo = 1800, double tSpan = 4.0)
     {
+        toneLo = tLo; toneSpan = tSpan; apG = apBoost;
         sr = sampleRate; static const int L[N] = { 1429, 1693, 1993, 2371, 2753, 3217, 3613, 4129 }, A[NA] = { 142, 107, 379, 277 };
         static const double R[N] = { 0.17, 0.23, 0.29, 0.31, 0.37, 0.41, 0.43, 0.47 };
         for (int i = 0; i < N; ++i)
         {
-            len[i] = std::max (16, (int) std::lround (L[i] * sr / 48000)); const int sz = pow2i (len[i] + 64); d[i].assign ((size_t) sz, 0.0); mask[i] = sz - 1; wp[i] = 0; lp[i] = 0;
+            len[i] = std::max (16, (int) std::lround (L[i] * lenScale * sr / 48000)); const int sz = pow2i (len[i] + 64); d[i].assign ((size_t) sz, 0.0); mask[i] = sz - 1; wp[i] = 0; lp[i] = 0;
             ph[i] = i * 0.9; inc[i] = TAU * R[i] / sr;
         }
-        depth = 5.0 * sr / 48000;
-        for (int i = 0; i < NA; ++i) { apLen[i] = std::max (4, (int) std::lround (A[i] * sr / 48000)); ap[i].assign ((size_t) apLen[i], 0.0); apW[i] = 0; }
-        preLen = std::max (1, (int) std::lround (0.012 * sr)); pre.assign ((size_t) preLen, 0.0); preW = 0; hpz = 0; hpk = 1 - std::exp (-TAU * 140 / sr);
+        depth = 5.0 * std::sqrt (lenScale) * sr / 48000;
+        for (int i = 0; i < NA; ++i) { apLen[i] = std::max (4, (int) std::lround (A[i] * lenScale * sr / 48000)); ap[i].assign ((size_t) apLen[i], 0.0); apW[i] = 0; }
+        preLen = std::max (1, (int) std::lround (preMs * 0.001 * sr)); pre.assign ((size_t) preLen, 0.0); preW = 0; hpz = 0; hpk = 1 - std::exp (-TAU * 140 / sr);
         setDecay (1.8); setTone (5);
     }
     void clear() { for (auto& v : d) std::fill (v.begin(), v.end(), 0.0); for (auto& v : ap) std::fill (v.begin(), v.end(), 0.0); std::fill (pre.begin(), pre.end(), 0.0); for (auto& x : lp) x = 0; hpz = 0; }
     void setDecay (double rt60) { for (int i = 0; i < N; ++i) g[i] = std::pow (10.0, -3.0 * len[i] / (std::max (0.1, rt60) * sr)); outScale = 5.5 * std::pow (2.0 / std::max (0.3, rt60), 0.4); }
-    void setTone (double tone) { dk = 1 - std::exp (-TAU * (1800.0 * std::pow (4.0, clampd (tone, 0, 10) / 10)) / sr); }   // damping 1.8 kHz .. 7.2 kHz
+    void setTone (double tone) { dk = 1 - std::exp (-TAU * (toneLo * std::pow (toneSpan, clampd (tone, 0, 10) / 10)) / sr); }
     inline void process (double x, double& oL, double& oR)
     {
         const double pd = pre[(size_t) preW]; pre[(size_t) preW] = x; preW = (preW + 1) % preLen; x = pd;
         hpz += (x - hpz) * hpk; x -= hpz;                                            // keep rumble out of the tank
         static const double AG[NA] = { 0.72, 0.72, 0.62, 0.62 };
-        for (int i = 0; i < NA; ++i) { const double z = ap[i][(size_t) apW[i]], v = x - AG[i] * z; ap[i][(size_t) apW[i]] = v; x = z + AG[i] * v; apW[i] = (apW[i] + 1) % apLen[i]; }
+        for (int i = 0; i < NA; ++i) { const double ag = std::min (0.82, AG[i] + apG), z = ap[i][(size_t) apW[i]], v = x - ag * z; ap[i][(size_t) apW[i]] = v; x = z + ag * v; apW[i] = (apW[i] + 1) % apLen[i]; }
         double y[N], sum = 0;
         for (int i = 0; i < N; ++i)
         {
@@ -311,21 +336,25 @@ struct ReverbPedal
     }
 };
 
-// Compression sustainer: peak detector with adjustable attack, soft downward gain computer, automatic makeup so that
-// loud notes stay about the same level while quiet notes and tails are lifted.
+// Compressor / sustainer: fast level detector, soft-knee gain computer in dB, separate attack and release on the gain itself,
+// and a modest automatic make-up so that tails come up without the pedal turning into a booster.
 struct CompPedal
 {
-    double env = 0, gdb = 0, sr = 48000, rel = 0, ka = 0;
-    void init (double sampleRate) { sr = sampleRate; env = 0; gdb = 0; rel = std::exp (-1 / (0.28 * sr)); setAttack (4); }
+    double env = 0, gdb = 0, sr = 48000, ka = 0, kr = 0, kd = 0, kdr = 0;
+    void init (double sampleRate) { sr = sampleRate; env = 0; gdb = 0; kd = 1 - std::exp (-1 / (0.0004 * sr)); kdr = 1 - std::exp (-1 / (0.025 * sr)); setAttack (4); setRelease (5); }
     void flush() { flushv (env); flushv (gdb); }
-    void setAttack (double knob) { ka = 1 - std::exp (-1 / ((0.0005 * std::pow (80.0, clampd (knob, 0, 10) / 10)) * sr)); }   // 0.5 ms .. 40 ms
+    void setAttack (double knob) { ka = 1 - std::exp (-1 / ((0.002 * std::pow (30.0, clampd (knob, 0, 10) / 10)) * sr)); }      // 2 ms .. 60 ms
+    void setRelease (double knob) { kr = 1 - std::exp (-1 / ((0.05 * std::pow (24.0, clampd (knob, 0, 10) / 10)) * sr)); }    // 50 ms .. 1.2 s
     inline double process (double x, double thr, double ratio, double makeup)
     {
         const double a = x < 0 ? -x : x;
-        env = a > env ? env + (a - env) * ka : env * rel;
-        const double lv = 20 * std::log10 (env + 1e-6), over = lv - thr;
-        const double target = (over > 0 ? -over * (1 - 1 / ratio) : 0) + makeup;
-        gdb += (target - gdb) * 0.0025 * (target < gdb ? 6 : 1);   // short smoothing of the gain itself
+        env += (a - env) * (a > env ? kd : kdr);
+        const double lv = 20 * std::log10 (env + 1e-7), over = lv - thr, knee = 8.0, s = 1 - 1 / ratio;
+        double gr = 0;
+        if (over > knee * 0.5) gr = over * s;
+        else if (over > -knee * 0.5) { const double q = over + knee * 0.5; gr = s * q * q / (2 * knee); }
+        const double target = makeup - gr;
+        gdb += (target - gdb) * (target < gdb ? ka : kr);
         return x * std::exp (gdb * 0.11512925464970229);
     }
 };
@@ -370,10 +399,10 @@ struct Params
     // amp input gain (5 = unchanged)
     double gain = 5;
     // pedals
-    bool cmpOn = false; double cmpSustain = 5, cmpAttack = 4, cmpLevel = 5;
+    bool cmpOn = false; double cmpSustain = 5, cmpAttack = 4, cmpLevel = 5, cmpRelease = 5;
     bool drvOn = false; double drvDrive = 5, drvTone = 5, drvLevel = 5;
-    bool dlyOn = false; double dlyTime = 4, dlyFb = 3, dlyMix = 3;
-    bool rvbOn = false; double rvbSize = 4, rvbTone = 5, rvbMix = 3;
+    bool dlyOn = false; double dlyTime = 4, dlyFb = 3, dlyMix = 3, dlyTone = 5; int dlyType = 1;   // 0 mono, 1 stereo, 2 ping-pong, 3 tape
+    bool rvbOn = false; double rvbSize = 4, rvbTone = 5, rvbMix = 3; int rvbType = 0;   // 0 hall, 1 plate, 2 spring, 3 room
     bool choOn = false; double choRate = 4, choDepth = 5, choMix = 5;
 };
 
@@ -421,7 +450,7 @@ public:
         std::fill (std::begin (tsZ), std::end (tsZ), 0.0); brZ = 0;
         aHp[0] = aHp[1] = aLp[0] = aLp[1] = tP = tPh = Bq();
         cHp = cRes = cPk = cDip = cL1 = cL2 = cM1 = cM2 = cProx = Bq();
-        pedC.init (sr); pedD.init (&hb, sr); pedL.init (sr); pedR.init (sr); pedCh.init (sr); dlyLive = rvbLive = choLive = false;
+        pedC.init (sr); pedD.init (&hb, sr); pedL.init (sr); pedR.init (sr); pedP.init (sr, 0.55, 1.5, 0.08, 3000, 4.3); pedRm.init (sr, 0.2, 3.0, 0.05, 2200, 3.6); pedCh.init (sr); dlyLive = rvbLive = choLive = false;
         fade = fadeOld = 1; haveP = false; cabIdx = -1;
         std::fill (cur, cur + NP, 0.0); std::fill (old, old + NP, 0.0); std::fill (tgt, tgt + NP, 0.0);
     }
@@ -475,8 +504,8 @@ private:
     double b1[128], u[128 * 4], tg[128];
     // pedals
     int preOrd[2] = { 0, 1 }, postOrd[3] = { 2, 3, 4 }; ChorusPedal pedCh; bool choLive = false;
-    CompPedal pedC; double coThr = -40, coRatio = 6, coMake = 10, coAtt = 4;
-    DrivePedal pedD; DelayPedal pedL; ReverbPedal pedR; double pdDrive = 5, pdTone = 3000, rvDecay = 1.5, rvTone = 5; bool dlyLive = false, rvbLive = false;
+    CompPedal pedC; double coThr = -40, coRatio = 6, coMake = 10, coAtt = 4, coRel = 5;
+    DrivePedal pedD; DelayPedal pedL; ReverbPedal pedR, pedP, pedRm; int dlType = 1, rvType = 0, rvTypeLive = -1; double spG = 0.88, rvTypeGain[4] = { 1.0, 0.58, 1.0, 0.52 }; double pdDrive = 5, pdTone = 3000, rvDecay = 1.5, rvTone = 5; bool dlyLive = false, rvbLive = false;
 
     void setHumFreq (double f0)
     {
@@ -492,7 +521,9 @@ private:
     {
         double* t = tgt;
         t[GateThr] = P.gateThr; t[GateOn] = P.gateOn ? 1 : 0;
-        const double vol = clampd (P.vol, 0, 10);
+        // Gain is the only drive control: it sweeps the preamp level pot (positions 0..10 over knob 0..8) and, above 8, pushes extra level into the first stage.
+        // Volume is a pure output level after everything else.
+        const double gk = clampd (P.gain, 0, 10), vol = std::min (gk, 8.0) * 1.25;
         t[AT] = clampd (P.treb, 0, 10) / 10; t[AM] = clampd (P.mid, 0, 10) / 10; t[AL] = clampd (P.bass, 0, 10) / 10;
         t[AV] = vol <= 0 ? 0 : std::pow (10.0, ((vol - 10) * 3.0) / 20) * std::pow (std::min (1.0, vol / 1.5), 2.0);
         t[ABr] = P.bright ? 1 : 0;
@@ -509,9 +540,9 @@ private:
         t[Vol] = std::pow (clampd (P.outVol, 0, 10) / 10, 1.5) / std::pow (0.6, 1.5);
         t[HumAmt] = P.humOn ? clampd (P.humAmt, 0, 10) / 10 : 0;
         humNom = P.humHz == 50 ? 50 : 60;
-        t[AGn] = dbl ((clampd (P.gain, 0, 10) - 5) * 2.4);
+        t[AGn] = dbl (gk > 8 ? (gk - 8) * 6.0 : 0.0);
         t[CoOn] = P.cmpOn ? 1 : 0; t[CoLv] = dbl ((clampd (P.cmpLevel, 0, 10) - 5) * 2.4);
-        { const double su = clampd (P.cmpSustain, 0, 10); coThr = -20 - su * 3.2; coRatio = 2 + su * 1.8; coMake = std::max (0.0, -18 - coThr) * (1 - 1 / coRatio) * 1.12; coAtt = P.cmpAttack; }
+        { const double su = clampd (P.cmpSustain, 0, 10); coThr = -12 - su * 2.4; coRatio = 2.5 + su * 0.55; coMake = 0.8 * std::max (0.0, -12 - coThr) * (1 - 1 / coRatio); coAtt = P.cmpAttack; coRel = P.cmpRelease; }
         t[PdOn] = P.drvOn ? 1 : 0; t[PdLv] = dbl ((clampd (P.drvLevel, 0, 10) - 5) * 2.4);
         pdDrive = clampd (P.drvDrive, 0, 10); pdTone = 600.0 * std::pow (10.0, clampd (P.drvTone, 0, 10) / 10 * 1.0);   // 600 Hz .. 6 kHz
         t[DlOn] = P.dlyOn ? 1 : 0; t[DlTime] = 0.06 * std::pow (12.0, clampd (P.dlyTime, 0, 10) / 10);                  // 60 ms .. 720 ms
@@ -520,7 +551,11 @@ private:
         t[ChOn] = P.choOn ? 1 : 0; t[ChRate] = 0.15 * std::pow (40.0, clampd (P.choRate, 0, 10) / 10); t[ChDepth] = 0.4 + clampd (P.choDepth, 0, 10) / 10 * 4.6; t[ChMix] = clampd (P.choMix, 0, 10) / 10;
         { int k = 0, q = 0; for (int i = 0; i < 5; ++i) { const int id = P.order[i]; if (id == 0 || id == 1) { if (k < 2) preOrd[k++] = id; } else if (id >= 2 && id <= 4) { if (q < 3) postOrd[q++] = id; } }
           if (k < 2 || q < 3) { preOrd[0] = 0; preOrd[1] = 1; postOrd[0] = 2; postOrd[1] = 3; postOrd[2] = 4; } }
-        rvDecay = 0.4 * std::pow (15.0, clampd (P.rvbSize, 0, 10) / 10); rvTone = P.rvbTone;                             // 0.4 s .. 6 s
+        rvType = P.rvbType < 0 ? 0 : (P.rvbType > 3 ? 3 : P.rvbType);
+        { const double sz = clampd (P.rvbSize, 0, 10) / 10;
+          static const double dMin[4] = { 0.4, 0.5, 0, 0.12 }, dRatio[4] = { 15.0, 8.0, 1, 7.5 };   // decay seconds: hall 0.4..6, plate 0.5..4, room 0.12..0.9
+          rvDecay = dMin[rvType] * std::pow (dRatio[rvType], sz); rvTone = P.rvbTone; spG = 0.80 + 0.135 * sz; }
+        dlType = P.dlyType < 0 ? 0 : (P.dlyType > 3 ? 3 : P.dlyType); pedL.setTone (P.dlyTone, dlType);
     }
     void coefs()
     {
@@ -651,7 +686,7 @@ private:
         auto doComp = [&] {
         if (old[CoOn] > 1e-4 || cur[CoOn] > 1e-4)
         {
-            pedC.setAttack (coAtt);
+            pedC.setAttack (coAtt); pedC.setRelease (coRel);
             const double e0 = old[CoOn], e1 = cur[CoOn], l0 = old[CoLv], l1 = cur[CoLv];
             for (int i = 0; i < n; ++i)
             {
@@ -731,21 +766,18 @@ private:
         if (rvbAct && ! rvbLive) pedR.clear();
         const bool choAct = old[ChOn] > 1e-4 || cur[ChOn] > 1e-4; if (choAct && ! choLive) pedCh.clear(); choLive = choAct;
         dlyLive = dlyAct; rvbLive = rvbAct;
-        if (rvbAct) { pedR.setDecay (rvDecay); pedR.setTone (rvTone); }
+        if (rvbAct)
+        {
+            if (rvType != rvTypeLive) { pedR.clear(); pedP.clear(); pedRm.clear(); spA.flush(); spB.flush(); spLo = 0; rvTypeLive = rvType; }
+            ReverbPedal* rp = rvType == 1 ? &pedP : (rvType == 3 ? &pedRm : &pedR);
+            if (rvType != 2) { rp->setDecay (rvDecay); rp->setTone (rvTone); }
+            else { spA.g = spB.g = spG; const double f = 1800.0 * std::pow (3.0, clampd (rvTone, 0, 10) / 10); spA.dk = spB.dk = 1 - std::exp (-TAU * f / sr); }
+        }
+        else rvTypeLive = -1;
         for (int i = 0; i < n; ++i)
         {
             const double t = (i + 1) * inv, s = b1[i]; double l = s, r = s;
-            const double spm = sp0 + (sp1 - sp0) * t;
-            { const double aa = s < 0 ? -s : s; spAct = aa > spAct ? aa : spAct * 0.9997; }
-            if (spm > 1e-4 && (spAct > 1e-6 || spTail > 3e-6))
-            {
-                spLo += (s - spLo) * spHk;
-                const double xi = ft ((s - spLo) * 2) * 0.5 + 1e-18;
-                const double wa = spA.p (xi), wb = spB.p (xi);
-                l += (wa + 0.35 * wb) * spm * 1.3; r += (wb + 0.35 * wa) * spm * 1.3;
-                const double ta = wa < 0 ? -wa : wa; spTail = ta > spTail ? ta : spTail * 0.9995;
-            }
-            for (int pi = 0; pi < 3; ++pi)
+                        for (int pi = 0; pi < 3; ++pi)
             {
                 const int po = postOrd[pi];
             if (po == 2)
@@ -762,7 +794,7 @@ private:
             if (dlyAct)
             {
                 const double e = old[DlOn] + (cur[DlOn] - old[DlOn]) * t, tm = lerpd (old[DlTime], cur[DlTime], t) * sr;
-                double wl, wr; pedL.process ((l + r) * 0.5, tm, lerpd (old[DlFb], cur[DlFb], t), wl, wr);
+                double wl, wr; pedL.process ((l + r) * 0.5, tm, lerpd (old[DlFb], cur[DlFb], t), dlType, wl, wr);
                 const double mx = lerpd (old[DlMix], cur[DlMix], t) * e; l += wl * mx; r += wr * mx;
             }
             }
@@ -770,8 +802,15 @@ private:
             {
             if (rvbAct)
             {
-                const double e = old[RvOn] + (cur[RvOn] - old[RvOn]) * t; double wl, wr; pedR.process ((l + r) * 0.5, wl, wr);
-                const double mx = lerpd (old[RvMix], cur[RvMix], t) * e * 1.0; l += wl * mx; r += wr * mx;
+                const double e = old[RvOn] + (cur[RvOn] - old[RvOn]) * t; double wl = 0, wr = 0; const double xin = (l + r) * 0.5;
+                if (rvType == 2)
+                {
+                    spLo += (xin - spLo) * spHk;
+                    const double xi = ft ((xin - spLo) * 2) * 0.5 + 1e-18, wa = spA.p (xi), wb = spB.p (xi);
+                    wl = (wa + 0.35 * wb) * 1.3; wr = (wb + 0.35 * wa) * 1.3;
+                }
+                else (rvType == 1 ? pedP : (rvType == 3 ? pedRm : pedR)).process (xin, wl, wr);
+                const double mx = lerpd (old[RvMix], cur[RvMix], t) * e * rvTypeGain[rvType]; l += wl * mx; r += wr * mx;
             }
             }
             }

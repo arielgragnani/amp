@@ -172,6 +172,7 @@ class Pedal : public juce::Component
 public:
     juce::String title; juce::Colour body, ink; FootSwitch foot; std::vector<std::unique_ptr<Knob>> knobs;
     std::function<void()> onChange;
+    juce::StringArray typeNames; int typeIdx = 0;          // optional mode selector (reverb type, delay type)
     std::function<void (Pedal*, const juce::MouseEvent&, int)> onMove;   // 0 down, 1 drag, 2 up: lets the board reorder pedals
     Pedal (juce::String t, juce::Colour c, juce::Colour i) : title (std::move (t)), body (c), ink (i)
     {
@@ -179,13 +180,20 @@ public:
     }
     Knob& add (const juce::String& name, double def)
     {
-        auto k = std::make_unique<Knob> (name, 0, 10, def, 2); k->setInk (ink, ink);
+        auto k = std::make_unique<Knob> (name, 0, 10, def, 2); k->setInk (ink, ink); k->name.setFont (juce::Font (juce::FontOptions (10.f, juce::Font::bold)));
         k->s.onValueChange = [this] { if (onChange) onChange(); };
         addAndMakeVisible (*k); knobs.push_back (std::move (k)); return *knobs.back();
     }
-    void mouseDown (const juce::MouseEvent& e) override { if (onMove) onMove (this, e, 0); }
-    void mouseDrag (const juce::MouseEvent& e) override { if (onMove) onMove (this, e, 1); }
-    void mouseUp (const juce::MouseEvent& e) override { if (onMove) onMove (this, e, 2); }
+    void mouseDown (const juce::MouseEvent& e) override
+    {
+        if (typeNames.size() > 0 && typeRect.contains (e.getPosition()))
+        {
+            const int n = typeNames.size(); typeIdx = (typeIdx + (e.x < typeRect.getCentreX() ? n - 1 : 1)) % n; typeDrag = true; repaint(); if (onChange) onChange(); return;
+        }
+        typeDrag = false; if (onMove) onMove (this, e, 0);
+    }
+    void mouseDrag (const juce::MouseEvent& e) override { if (! typeDrag && onMove) onMove (this, e, 1); }
+    void mouseUp (const juce::MouseEvent& e) override { if (! typeDrag && onMove) onMove (this, e, 2); typeDrag = false; }
     juce::MouseCursor getMouseCursor() override { return juce::MouseCursor::DraggingHandCursor; }
     // y of the jack centre, in this component's coordinates
     float jackY() const { return getHeight() * 0.46f; }
@@ -214,6 +222,15 @@ public:
         // silkscreened name
         g.setColour (ink); g.setFont (juce::Font (juce::FontOptions (juce::jmin (16.f, getWidth() * 0.105f), juce::Font::bold | juce::Font::italic)));
         g.drawText (title, getLocalBounds().withY (nameY).withHeight (18), juce::Justification::centred);
+        if (typeNames.size() > 0)
+        {
+            auto t = typeRect.toFloat(); g.setColour (juce::Colours::black.withAlpha (0.6f)); g.fillRoundedRectangle (t, 4.f);
+            g.setColour (ink.withAlpha (0.55f)); g.drawRoundedRectangle (t, 4.f, 1.f);
+            g.setColour (ink); juce::Path l, rr; const float cy = t.getCentreY();
+            l.addTriangle (t.getX() + 9, cy, t.getX() + 15, cy - 4, t.getX() + 15, cy + 4); rr.addTriangle (t.getRight() - 9, cy, t.getRight() - 15, cy - 4, t.getRight() - 15, cy + 4);
+            g.fillPath (l); g.fillPath (rr);
+            g.setColour (juce::Colours::white.withAlpha (0.9f)); g.setFont (juce::Font (juce::FontOptions (11.5f, juce::Font::bold))); g.drawText (typeNames[typeIdx].toUpperCase(), typeRect.reduced (14, 0), juce::Justification::centred);
+        }
         // LED
         const bool on = foot.getToggleState(); const float lx = r.getCentreX(), ly = (float) ledY;
         if (on) { g.setColour (juce::Colour (0x44ff3a2a)); g.fillEllipse (lx - 9, ly - 9, 18, 18); }
@@ -228,12 +245,13 @@ public:
         auto r = getLocalBounds().reduced (12, 0); r.removeFromTop (6);
         auto kr = r.removeFromTop (46); const int n = (int) knobs.size(), kw = n ? kr.getWidth() / n : 0;
         for (auto& k : knobs) k->setBounds (kr.removeFromLeft (kw).reduced (1, 0));
-        nameY = kr.getBottom() + 3; ledY = nameY + 18 + 8;
+        if (typeNames.size() > 0) { typeRect = juce::Rectangle<int> (14, kr.getBottom() + 2, getWidth() - 28, 17); kr.removeFromBottom (0); nameY = typeRect.getBottom() + 1; } else nameY = kr.getBottom() + 3;
+        ledY = nameY + 18 + 8;
         const int sy = ledY + 9, sh = std::max (24, getHeight() - sy - 10);
         foot.setBounds (juce::Rectangle<int> (10, sy, getWidth() - 20, sh));
     }
 private:
-    int nameY = 52, ledY = 78;
+    int nameY = 52, ledY = 78; juce::Rectangle<int> typeRect; bool typeDrag = false;
 };
 
 // The pedals with patch cables between them
@@ -242,8 +260,8 @@ class PedalBoard : public juce::Component
 public:
     Pedal comp   { "Sustain Comp", juce::Colour (0xffd29a1c), juce::Colour (0xff231705) };
     Pedal drive  { "Blues Crunch", juce::Colour (0xff1e5fb3), juce::Colour (0xffeef3ff) };
-    Pedal delay  { "Echo Delay",   juce::Colour (0xff7a3fa8), juce::Colour (0xfff6ecff) };
-    Pedal reverb { "Hall Reverb",  juce::Colour (0xff1f8a6a), juce::Colour (0xffeafff6) };
+    Pedal delay  { "Delay",   juce::Colour (0xff7a3fa8), juce::Colour (0xfff6ecff) };
+    Pedal reverb { "Reverb",      juce::Colour (0xff1f8a6a), juce::Colour (0xffeafff6) };
     Pedal chorus { "Chorus",       juce::Colour (0xffe8741a), juce::Colour (0xff2a1203) };
     std::array<int, 5> ord { 0, 1, 2, 3, 4 };       // left to right: ids 0 comp, 1 drive, 2 chorus, 3 delay, 4 reverb
     std::function<void()> onOrder;
@@ -253,7 +271,7 @@ public:
     }
     std::array<Pedal*, 5> all() { return { &comp, &drive, &chorus, &delay, &reverb }; }      // by id
     std::array<Pedal*, 5> inOrder() { auto a = all(); std::array<Pedal*, 5> o; for (int i = 0; i < 5; ++i) o[(size_t) i] = a[(size_t) ord[(size_t) i]]; return o; }
-    static constexpr int PW = 148;
+    static constexpr int PW = 204;
     int stepPx() const { return PW + (getWidth() - 100 - PW * 5) / 4; }
     void layoutPedals (Pedal* skip = nullptr)
     {
@@ -300,7 +318,7 @@ public:
         g.restoreState();
         g.setColour (cDim); g.setFont (juce::Font (juce::FontOptions (12.f, juce::Font::bold)));
         g.drawText ("PEDALBOARD", 14, 3, 100, 16, juce::Justification::centredLeft);
-        g.setFont (juce::Font (juce::FontOptions (11.f))); g.drawText ("drag a pedal to change the order  -  compressor and drive go in front of the amp, chorus, echo and hall come after it", 110, 3, getWidth() - 130, 16, juce::Justification::centredLeft);
+        g.setFont (juce::Font (juce::FontOptions (11.f))); g.drawText ("drag a pedal to change the order  -  compressor and drive go in front of the amp, chorus, delay and reverb come after it", 110, 3, getWidth() - 130, 16, juce::Justification::centredLeft);
 
         const float y = (float) comp.getY() + comp.jackY();
         auto cable = [&] (float x0, float x1)

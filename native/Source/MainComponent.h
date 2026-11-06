@@ -10,7 +10,7 @@
 class MainComponent : public juce::Component, private juce::Timer, private juce::ChangeListener
 {
 public:
-    static constexpr int DesignW = 1040, DesignH = 940;
+    static constexpr int DesignW = 1260, DesignH = 975;
 
     MainComponent()
     {
@@ -82,7 +82,7 @@ public:
         altui::drawPlate (g, plate.toFloat());
         for (float rx : { plate.getX() + 9.f, plate.getRight() - 9.f }) for (float ry : { plate.getY() + 9.f, plate.getBottom() - 9.f }) altui::drawRivet (g, rx, ry);
         // signature, slightly tilted, where the power lamp would be
-        { g.saveState(); const float cx = (float) plate.getRight() - 190.f, cy = (float) plate.getBottom() - 34.f;
+        { g.saveState(); const float cx = (float) plate.getRight() - 140.f, cy = (float) plate.getBottom() - 34.f;
           g.addTransform (juce::AffineTransform::rotation (-0.08f, cx, cy));
           g.setFont (scriptFont (40.f)); g.setColour (juce::Colours::black.withAlpha (0.6f)); g.drawText ("by Ariel Gragnani", (int) cx - 170 + 1, (int) cy - 26 + 2, 340, 52, juce::Justification::centred);
           g.setColour (juce::Colour (0xfff0e4c4)); g.drawText ("by Ariel Gragnani", (int) cx - 170, (int) cy - 26, 340, 52, juce::Justification::centred);
@@ -122,7 +122,7 @@ public:
             auto a = plate.reduced (10, 6);
             auto row = a.removeFromTop (106);
             const int kw = row.getWidth() / 5;
-            for (auto* k : { &kGain, &kVol, &kTreb, &kMid, &kBass }) k->setBounds (row.removeFromLeft (kw).reduced (2, 0));
+            for (auto* k : { &kGain, &kTreb, &kMid, &kBass, &kVol }) k->setBounds (row.removeFromLeft (kw).reduced (2, 0));
             a.removeFromTop (4);
             auto sw = a.removeFromTop (46).withTrimmedLeft (24);
             brightBtn.setBounds (sw.removeFromLeft (84)); sw.removeFromLeft (16);
@@ -148,7 +148,7 @@ public:
             learnStatus.setBounds (r2);
         }
 
-        board.setBounds (r.removeFromTop (160)); r.removeFromTop (8);
+        board.setBounds (r.removeFromTop (195)); r.removeFromTop (8);
 
         recBox = r;
         {
@@ -187,12 +187,13 @@ private:
     static const Preset* presets()
     {
         static const Preset p[] = {
-            { "Fender Crunch", 5, 10,  3,   6,   6,   2,   5,   0, false, 1, 2, 0 },
-            { "Twin Sparkle",  5, 4,   5,   5,   4,   2.5, 5,   0, true,  0, 5, 0 },
-            { "Warm Jazz",     5, 3.5, 2.5, 6,   5.5, 2,   5,   0, false, 1, 4, 0 },
-            { "Blues Junior",  5, 4.5, 5,   5,   5,   0,   5,   0, false, 1, 3, 1 },
-            { "Lead Stack",    6, 4.5, 6,   6.5, 4,   0,   5,   0, false, 2, 3, 2 },
-            { "British Classic", 4, 5, 6,   3,   5,   0,   5,   0, true,  0, 3, 3 } };
+            // fields: name, gain, volume, treble, middle, bass, (unused x3), bright, cabinet, mic position, amp model
+            { "Fender Crunch", 8,   6, 3,   6,   6,   0, 5, 0, false, 1, 2, 0 },
+            { "Twin Sparkle",  3.2, 6, 5,   5,   4,   0, 5, 0, true,  0, 5, 0 },
+            { "Warm Jazz",     2.8, 6, 2.5, 6,   5.5, 0, 5, 0, false, 1, 4, 0 },
+            { "Blues Junior",  3.5, 6, 5,   5,   5,   0, 5, 0, false, 1, 3, 1 },
+            { "Lead Stack",    6,   6, 6,   6.5, 4,   0, 5, 0, false, 2, 3, 2 },
+            { "British Classic", 4, 6, 6,   3,   5,   0, 5, 0, true,  0, 3, 3 } };
         return p;
     }
     static constexpr int NumPresets = 6;
@@ -235,7 +236,7 @@ private:
     juce::Slider gainSl { juce::Slider::LinearHorizontal, juce::Slider::NoTextBox };
     altui::LevelMeter meterIn, meterOut; juce::Label latencyLbl;
     altui::VoicingTabs tabs;
-    altui::Knob kGain { "GAIN", 0, 10, 5, 1 }, kVol { "VOLUME", 0, 10, 4, 1 }, kTreb { "TREBLE", 0, 10, 6, 1 }, kMid { "MIDDLE", 0, 10, 4, 1 }, kBass { "BASS", 0, 10, 4, 1 };
+    altui::Knob kGain { "GAIN", 0, 10, 6, 1 }, kVol { "VOLUME", 0, 10, 6, 1 }, kTreb { "TREBLE", 0, 10, 6, 1 }, kMid { "MIDDLE", 0, 10, 4, 1 }, kBass { "BASS", 0, 10, 4, 1 };
     altui::ToggleSwitch brightBtn { "Bright" }, satBtn { "Saturation" }; altui::CabinetView cabView; juce::TextButton mixBtn { "Export mix" };
     altui::FoldHeader noiseHeader;
     juce::TextButton noiseSampleBtn { "Save noise sample" }, tunerBtn { "Tuner" };
@@ -274,12 +275,12 @@ private:
     void pedalsChanged()
     {
         auto& c = board.comp; auto& d = board.drive; auto& l = board.delay; auto& v = board.reverb;
-        P.cmpOn = c.foot.getToggleState(); P.cmpSustain = c.knobs[0]->s.getValue(); P.cmpAttack = c.knobs[1]->s.getValue(); P.cmpLevel = c.knobs[2]->s.getValue();
+        P.cmpOn = c.foot.getToggleState(); P.cmpSustain = c.knobs[0]->s.getValue(); P.cmpAttack = c.knobs[1]->s.getValue(); P.cmpRelease = c.knobs[2]->s.getValue(); P.cmpLevel = c.knobs[3]->s.getValue();
         P.drvOn = d.foot.getToggleState(); P.drvDrive = d.knobs[0]->s.getValue(); P.drvTone = d.knobs[1]->s.getValue(); P.drvLevel = d.knobs[2]->s.getValue();
-        P.dlyOn = l.foot.getToggleState(); P.dlyTime = l.knobs[0]->s.getValue(); P.dlyFb = l.knobs[1]->s.getValue(); P.dlyMix = l.knobs[2]->s.getValue();
+        P.dlyOn = l.foot.getToggleState(); P.dlyTime = l.knobs[0]->s.getValue(); P.dlyFb = l.knobs[1]->s.getValue(); P.dlyMix = l.knobs[2]->s.getValue(); P.dlyTone = l.knobs[3]->s.getValue(); P.dlyType = l.typeIdx;
         { auto& h = board.chorus; P.choOn = h.foot.getToggleState(); P.choRate = h.knobs[0]->s.getValue(); P.choDepth = h.knobs[1]->s.getValue(); P.choMix = h.knobs[2]->s.getValue(); }
         for (int i = 0; i < 5; ++i) P.order[i] = board.ord[(size_t) i];
-        P.rvbOn = v.foot.getToggleState(); P.rvbSize = v.knobs[0]->s.getValue(); P.rvbTone = v.knobs[1]->s.getValue(); P.rvbMix = v.knobs[2]->s.getValue();
+        P.rvbOn = v.foot.getToggleState(); P.rvbSize = v.knobs[0]->s.getValue(); P.rvbTone = v.knobs[1]->s.getValue(); P.rvbMix = v.knobs[2]->s.getValue(); P.rvbType = v.typeIdx;
         if (! loading) pushParams();
     }
 
@@ -327,8 +328,8 @@ private:
 
         // amp knobs
         auto bindKnob = [this] (altui::Knob& k, double& dst) { k.s.onValueChange = [this, &k, &dst] { dst = k.s.getValue(); markCustom(); if (! loading) pushParams(); }; };
-        bindKnob (kGain, P.gain); bindKnob (kVol, P.vol); bindKnob (kTreb, P.treb); bindKnob (kMid, P.mid); bindKnob (kBass, P.bass);;
-        P.gain = 5; P.vol = 4; P.treb = 6; P.mid = 4; P.bass = 4; P.rev = 0; P.trs = 5; P.tri = 0; P.outVol = 6; P.cabOn = true;   // spring reverb, tremolo and output trim are gone; the cabinet is always in the signal path
+        bindKnob (kGain, P.gain); bindKnob (kVol, P.outVol); bindKnob (kTreb, P.treb); bindKnob (kMid, P.mid); bindKnob (kBass, P.bass);;
+        P.gain = 6; P.vol = 4; P.treb = 6; P.mid = 4; P.bass = 4; P.rev = 0; P.trs = 5; P.tri = 0; P.outVol = 6; P.cabOn = true;   // spring reverb, tremolo and output trim are gone; the cabinet is always in the signal path
         for (auto* k : { &kGain, &kVol, &kTreb, &kMid, &kBass }) k->setInk (juce::Colour (0xffe9e2cf), altui::cAmber);
 
         toggle (brightBtn, true, [this] { P.bright = brightBtn.getToggleState(); });
@@ -357,11 +358,13 @@ private:
         learnBtn.setTooltip ("Measures the noise for 2 seconds with the strings muted and sets the gate for you");
 
         // pedals
-        board.comp.add ("COMP", 5); board.comp.add ("ATTACK", 4); board.comp.add ("LEVEL", 5);
+        board.comp.add ("SUSTAIN", 5); board.comp.add ("ATTACK", 4); board.comp.add ("RELEASE", 5); board.comp.add ("LEVEL", 5);
         board.drive.add ("DRIVE", 5); board.drive.add ("TONE", 5); board.drive.add ("LEVEL", 5);
         board.chorus.add ("SPEED", 4); board.chorus.add ("DEPTH", 5); board.chorus.add ("MIX", 5);
-        board.delay.add ("TIME", 4); board.delay.add ("REPEAT", 3); board.delay.add ("MIX", 3);
+        board.delay.add ("TIME", 4); board.delay.add ("REPEAT", 3); board.delay.add ("MIX", 3); board.delay.add ("TONE", 5);
+        board.delay.typeNames = juce::StringArray { "Mono", "Stereo", "Ping-pong", "Tape" }; board.delay.typeIdx = 1;
         board.reverb.add ("SIZE", 4); board.reverb.add ("TONE", 5); board.reverb.add ("MIX", 3);
+        board.reverb.typeNames = juce::StringArray { "Hall", "Plate", "Spring", "Room" };
         for (auto* p : board.all()) p->onChange = [this] { pedalsChanged(); };
         board.onOrder = [this] { pedalsChanged(); };
 
@@ -639,18 +642,18 @@ private:
     {
         auto* s = props.getUserSettings(); if (s == nullptr) return;
         if (auto xml = dm.createStateXml()) s->setValue ("audioDevice", xml.get());
-        s->setValue ("gainK", P.gain); s->setValue ("vol", P.vol); s->setValue ("treb", P.treb); s->setValue ("mid", P.mid); s->setValue ("bass", P.bass); s->setValue ("rev", P.rev);
+        s->setValue ("gainK2", P.gain); s->setValue ("volK2", P.outVol); s->setValue ("treb", P.treb); s->setValue ("mid", P.mid); s->setValue ("bass", P.bass); s->setValue ("rev", P.rev);
         s->setValue ("bright", P.bright); s->setValue ("sat", P.sat);
         s->setValue ("cab", P.cab); s->setValue ("mic", P.mic); s->setValue ("micType", P.micType); s->setValue ("micDist", P.micDist); s->setValue ("humOn", P.humOn); s->setValue ("humHz", P.humHz); s->setValue ("humAmt", P.humAmt);
         s->setValue ("gateOn", P.gateOn); s->setValue ("gateThr", P.gateThr); s->setValue ("gain", gainSl.getValue()); s->setValue ("chan", chanBox.getSelectedId());
         s->setValue ("bpm", bpmSl.getValue()); s->setValue ("comp", compSl.getValue()); s->setValue ("click", clickSl.getValue());
         s->setValue ("voicing2", voicing); s->setValue ("ampModel", P.model); s->setValue ("noiseOpen2", noiseOpen);
-        s->setValue ("cmpOn", P.cmpOn); s->setValue ("cmpSustain", P.cmpSustain); s->setValue ("cmpAttack", P.cmpAttack); s->setValue ("cmpLevel", P.cmpLevel);
+        s->setValue ("cmpOn", P.cmpOn); s->setValue ("cmpSustain", P.cmpSustain); s->setValue ("cmpAttack", P.cmpAttack); s->setValue ("cmpLevel", P.cmpLevel); s->setValue ("cmpRelease", P.cmpRelease);
         s->setValue ("drvOn", P.drvOn); s->setValue ("drvDrive", P.drvDrive); s->setValue ("drvTone", P.drvTone); s->setValue ("drvLevel", P.drvLevel);
-        s->setValue ("dlyOn", P.dlyOn); s->setValue ("dlyTime", P.dlyTime); s->setValue ("dlyFb", P.dlyFb); s->setValue ("dlyMix", P.dlyMix);
+        s->setValue ("dlyOn", P.dlyOn); s->setValue ("dlyTime", P.dlyTime); s->setValue ("dlyFb", P.dlyFb); s->setValue ("dlyMix", P.dlyMix); s->setValue ("dlyTone", P.dlyTone); s->setValue ("dlyType", P.dlyType);
         s->setValue ("choOn", P.choOn); s->setValue ("choRate", P.choRate); s->setValue ("choDepth", P.choDepth); s->setValue ("choMix", P.choMix);
         { juce::String o; for (int i = 0; i < 5; ++i) o << board.ord[(size_t) i]; s->setValue ("pedalOrder", o); }
-        s->setValue ("rvbOn", P.rvbOn); s->setValue ("rvbSize", P.rvbSize); s->setValue ("rvbTone", P.rvbTone); s->setValue ("rvbMix", P.rvbMix);
+        s->setValue ("rvbOn", P.rvbOn); s->setValue ("rvbSize", P.rvbSize); s->setValue ("rvbTone", P.rvbTone); s->setValue ("rvbMix", P.rvbMix); s->setValue ("rvbType", P.rvbType);
         s->saveIfNeeded();
     }
     void loadSettings()
@@ -658,20 +661,20 @@ private:
         auto* s = props.getUserSettings(); if (s == nullptr) return;
         loading = true;
         auto d = [s] (const char* k, double def) { return s->getDoubleValue (k, def); };
-        kGain.s.setValue (d ("gainK", 5)); kVol.s.setValue (d ("vol", 4)); kTreb.s.setValue (d ("treb", 6)); kMid.s.setValue (d ("mid", 4)); kBass.s.setValue (d ("bass", 4));
+        kGain.s.setValue (d ("gainK2", 6)); kVol.s.setValue (d ("volK2", 6)); kTreb.s.setValue (d ("treb", 6)); kMid.s.setValue (d ("mid", 4)); kBass.s.setValue (d ("bass", 4));
         brightBtn.setToggleState (s->getBoolValue ("bright", true), juce::dontSendNotification); satBtn.setToggleState (s->getBoolValue ("sat", false), juce::dontSendNotification);
         P.cab = juce::jlimit (0, 2, s->getIntValue ("cab", 1)); P.mic = d ("mic", 5); P.micType = juce::jlimit (0, 4, s->getIntValue ("micType", 0)); P.micDist = d ("micDist", 3); cabView.setState (P.cab, P.micType, P.mic, P.micDist);
         humBtn.setToggleState (s->getBoolValue ("humOn", true), juce::dontSendNotification); humHzBox.setSelectedId (s->getIntValue ("humHz", 60) == 50 ? 2 : 1, juce::dontSendNotification);
         humAmtSl.setValue (d ("humAmt", 10)); gateBtn.setToggleState (s->getBoolValue ("gateOn", true), juce::dontSendNotification); gateSl.setValue (d ("gateThr", -58));
         gainSl.setValue (d ("gain", 0)); bpmSl.setValue (d ("bpm", 100)); compSl.setValue (d ("comp", 0)); clickSl.setValue (d ("click", 0.5));
-        { auto& cp = board.comp; cp.foot.setToggleState (s->getBoolValue ("cmpOn", false), juce::dontSendNotification); cp.knobs[0]->s.setValue (d ("cmpSustain", 5)); cp.knobs[1]->s.setValue (d ("cmpAttack", 4)); cp.knobs[2]->s.setValue (d ("cmpLevel", 5)); }
+        { auto& cp = board.comp; cp.foot.setToggleState (s->getBoolValue ("cmpOn", false), juce::dontSendNotification); cp.knobs[0]->s.setValue (d ("cmpSustain", 5)); cp.knobs[1]->s.setValue (d ("cmpAttack", 4)); cp.knobs[2]->s.setValue (d ("cmpRelease", 5)); cp.knobs[3]->s.setValue (d ("cmpLevel", 5)); }
         { auto& ch = board.chorus; ch.foot.setToggleState (s->getBoolValue ("choOn", false), juce::dontSendNotification); ch.knobs[0]->s.setValue (d ("choRate", 4)); ch.knobs[1]->s.setValue (d ("choDepth", 5)); ch.knobs[2]->s.setValue (d ("choMix", 5)); }
         { const auto o = s->getValue ("pedalOrder", "01234"); bool okOrd = o.length() == 5; int seen = 0; for (int i = 0; okOrd && i < 5; ++i) { const int v = o[i] - '0'; if (v < 0 || v > 4 || (seen & (1 << v))) okOrd = false; else seen |= 1 << v; }
           if (okOrd) for (int i = 0; i < 5; ++i) board.ord[(size_t) i] = o[i] - '0'; board.layoutPedals(); }
         auto& dv = board.drive; auto& dl = board.delay; auto& rv = board.reverb;
         dv.foot.setToggleState (s->getBoolValue ("drvOn", false), juce::dontSendNotification); dv.knobs[0]->s.setValue (d ("drvDrive", 5)); dv.knobs[1]->s.setValue (d ("drvTone", 5)); dv.knobs[2]->s.setValue (d ("drvLevel", 5));
-        dl.foot.setToggleState (s->getBoolValue ("dlyOn", false), juce::dontSendNotification); dl.knobs[0]->s.setValue (d ("dlyTime", 4)); dl.knobs[1]->s.setValue (d ("dlyFb", 3)); dl.knobs[2]->s.setValue (d ("dlyMix", 3));
-        rv.foot.setToggleState (s->getBoolValue ("rvbOn", false), juce::dontSendNotification); rv.knobs[0]->s.setValue (d ("rvbSize", 4)); rv.knobs[1]->s.setValue (d ("rvbTone", 5)); rv.knobs[2]->s.setValue (d ("rvbMix", 3));
+        dl.foot.setToggleState (s->getBoolValue ("dlyOn", false), juce::dontSendNotification); dl.knobs[0]->s.setValue (d ("dlyTime", 4)); dl.knobs[1]->s.setValue (d ("dlyFb", 3)); dl.knobs[2]->s.setValue (d ("dlyMix", 3)); dl.knobs[3]->s.setValue (d ("dlyTone", 5)); dl.typeIdx = juce::jlimit (0, 3, s->getIntValue ("dlyType", 1));
+        rv.foot.setToggleState (s->getBoolValue ("rvbOn", false), juce::dontSendNotification); rv.knobs[0]->s.setValue (d ("rvbSize", 4)); rv.knobs[1]->s.setValue (d ("rvbTone", 5)); rv.knobs[2]->s.setValue (d ("rvbMix", 3)); rv.typeIdx = juce::jlimit (0, 3, s->getIntValue ("rvbType", 0));
         noiseOpen = s->getBoolValue ("noiseOpen2", false); noiseHeader.open = noiseOpen;
         rebuildChannels(); if (s->getIntValue ("chan", 0) > 0 && s->getIntValue ("chan", 0) <= chanBox.getNumItems() + 1) chanBox.setSelectedId (s->getIntValue ("chan", 1), juce::dontSendNotification);
         P.bright = brightBtn.getToggleState(); P.sat = satBtn.getToggleState(); P.humOn = humBtn.getToggleState(); P.gateOn = gateBtn.getToggleState();
